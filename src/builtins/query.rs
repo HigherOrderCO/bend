@@ -1,6 +1,6 @@
 use crate::{
   builtins::util::{AsDefFunction, FunctionLikeHosted},
-  term::{term_to_net::Labels, Term},
+  term::{encoding::Labels, Term},
 };
 use hvmc::{
   host::{DefRef, Host},
@@ -25,7 +25,7 @@ pub(crate) fn make_query_def(host: Arc<Mutex<Host>>, labels: Arc<Labels>) -> Def
       let text = Term::encode_ok(Term::encode_str(buf));
       let mut labs = (*self.labels).clone();
       net.link_wire_port(output, app_node.p2);
-      let Ok(text) = crate::term::term_to_net::term_to_net(&text, &mut labs) else {
+      let Ok(text) = crate::term::encoding::encode_term(&text, &mut labs) else {
         net.link_port_port(Port::ERA, app_node.p1);
         net.link_wire_port(input, app_node.p0);
         return;

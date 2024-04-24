@@ -1,0 +1,9 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/addition.hvm
+---
+non-linear:
+(+ 2 1)
+
+linear:
+(+ 2 1)

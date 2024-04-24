@@ -1,0 +1,70 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/cli/debug_list_map_linear.hvm
+---
+Warnings:
+During readback:
+  Encountered malformed constructor of type 'List'.
+  Encountered malformed constructor of type 'List'.
+
+Warnings:
+During readback:
+  Encountered malformed constructor of type 'List'.
+  Encountered malformed constructor of type 'List'.
+
+Warnings:
+During readback:
+  Encountered malformed constructor of type 'List'.
+  Encountered malformed constructor of type 'List'.
+
+Warnings:
+During readback:
+  Encountered malformed constructor of type 'List'.
+
+(Map Inc [1, 41, 255, 90])
+---------------------------------------
+(Map Inc [1, 41, 255, 90])
+---------------------------------------
+(Map Inc [1, 41, 255, 90])
+---------------------------------------
+(Map Inc [1, 41, 255, 90])
+---------------------------------------
+(Map Inc [1, 41, 255, 90])
+---------------------------------------
+(match %matched = #List λa #List λb λc let {d e} = $h; (List.cons (d $f) (Map e $g)) { List.cons: #List (1 %matched.head %matched.tail); List.nil: #List λ$f #List λ* #List (a 41 #List λ$g #List λ* #List (b 255 #List λ$h #List λ* #List (c 90 []))); } Inc)
+---------------------------------------
+(List.cons (Inc 1) (Map Inc [41, 255, 90]))
+---------------------------------------
+(List.cons (Inc 1) (match %matched = #List λa #List λb λc let {d e} = c; (List.cons (d $f) (Map e $g)) { List.cons: #List (41 %matched.head %matched.tail); List.nil: #List λ$f #List λ* #List (a 255 #List λ$g #List λ* #List (b 90 [])); } Inc))
+---------------------------------------
+(List.cons (Inc 1) (List.cons (Inc 41) (Map Inc [255, 90])))
+---------------------------------------
+(List.cons (Inc 1) (List.cons (Inc 41) (match %matched = #List λa #List λb λc let {d e} = c; (List.cons (d $f) (Map e b)) { List.cons: #List (255 %matched.head %matched.tail); List.nil: #List λ$f #List λ* #List (a 90 []); } Inc)))
+---------------------------------------
+(List.cons (Inc 1) (List.cons (Inc 41) (List.cons (Inc 255) (Map Inc [90]))))
+---------------------------------------
+(List.cons (Inc 1) (List.cons (Inc 41) (List.cons (Inc 255) (match %matched = #List λa #List λb λc let {d e} = c; (List.cons (d a) (Map e b)) { List.cons: #List (90 %matched.head %matched.tail); List.nil: []; } Inc))))
+---------------------------------------
+(List.cons (Inc 1) (List.cons (Inc 41) (List.cons (Inc 255) (List.cons (Inc 90) (Map Inc [])))))
+---------------------------------------
+(List.cons (Inc 1) (List.cons (Inc 41) (List.cons (Inc 255) (List.cons (Inc 90) (match %matched = [] { List.cons: λc let {d e} = c; (List.cons (d %matched.head) (Map e %matched.tail)); List.nil: λ* []; } Inc)))))
+---------------------------------------
+(List.cons (Inc 1) (List.cons (Inc 41) (List.cons (Inc 255) (List.cons (Inc 90) (λ* [] Inc)))))
+---------------------------------------
+[(Inc 1), (Inc 41), (Inc 255), (Inc 90)]
+---------------------------------------
+[(Inc 1), (Inc 41), (Inc 255), (Inc 90)]
+---------------------------------------
+[(Inc 1), (Inc 41), (Inc 255), 91]
+---------------------------------------
+[(Inc 1), (Inc 41), (Inc 255), 91]
+---------------------------------------
+[(Inc 1), (Inc 41), 256, 91]
+---------------------------------------
+[(Inc 1), (Inc 41), 256, 91]
+---------------------------------------
+[(Inc 1), 42, 256, 91]
+---------------------------------------
+[(Inc 1), 42, 256, 91]
+---------------------------------------
+[2, 42, 256, 91]

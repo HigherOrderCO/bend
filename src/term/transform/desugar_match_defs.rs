@@ -509,6 +509,7 @@ impl Pattern {
       Pattern::Num(_) => Type::Num,
       Pattern::Lst(..) => Type::Adt(Name::new(builtins::LIST)),
       Pattern::Str(..) => Type::Adt(Name::new(builtins::STRING)),
+      Pattern::Err => unreachable!(),
     }
   }
 }

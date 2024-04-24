@@ -1,0 +1,9 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/match.hvm
+---
+non-linear:
+switch a = 1 { 0: λb b; _: a-1; }
+
+linear:
+switch a = 1 { 0: λb b; _: a-1; }

@@ -1,5 +1,0 @@
----
-source: tests/golden_tests.rs
-input_file: tests/golden_tests/readback_lnet/match.hvm
----
-switch a = 1 { 0: λb b; _: a-1; }

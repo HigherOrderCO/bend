@@ -1,0 +1,9 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/fst_snd.hvm
+---
+non-linear:
+(λa let (*, b) = a; b (λc let (d, *) = c; d ((1, 3), 2)))
+
+linear:
+(λ(*, a) a (λ(b, *) b ((1, 3), 2)))

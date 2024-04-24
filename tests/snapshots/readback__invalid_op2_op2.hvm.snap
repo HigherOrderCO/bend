@@ -1,0 +1,18 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/invalid_op2_op2.hvm
+---
+non-linear:
+Warnings:
+During readback:
+  Invalid Numeric Operation. (2 occurrences)
+
+λa (+ (+ <Invalid> 1) (1 <Invalid>))
+
+linear:
+Warnings:
+During readback:
+  Detected unbound variable (2 occurrences)
+  Mismatched polarities (4 occurrences)
+
+λ<Invalid> (+ (+ <Invalid> 1) (1 <Invalid>))

@@ -1,10 +1,11 @@
 use hvml::{
   compile_book, desugar_book,
   diagnostics::{Diagnostics, DiagnosticsConfig, Severity, ToStringVerbose},
-  net::hvmc_to_net::hvmc_to_net,
   run_book,
   term::{
-    load_book::do_parse_book, net_to_term::net_to_term, parser::TermParser, term_to_net, term_to_net::Labels,
+    encoding::{encode_term, Labels},
+    load_book::do_parse_book,
+    parser::TermParser,
     AdtEncoding, Book, Ctx, Name,
   },
   CompileOpts, RunOpts,
@@ -105,7 +106,7 @@ fn compile_term() {
 
     term.make_var_names_unique();
     term.linearize_vars();
-    let net = term_to_net(&term, &mut Default::default()).map_err(|e| e.to_string_verbose(true))?;
+    let net = encode_term(&term, &mut Default::default()).map_err(|e| e.to_string_verbose(true))?;
 
     Ok(format!("{}", net))
   })
@@ -144,24 +145,6 @@ fn compile_file_o_no_all() {
     let res = compile_book(&mut book, compile_opts, diagnostics_cfg, None)?;
     Ok(format!("{}", res.core_book))
   })
-}
-
-#[test]
-fn linear_readback() {
-  run_golden_test_dir(function_name!(), &|code, path| {
-    let book = do_parse_book(code, path)?;
-    let compile_opts = CompileOpts::default_strict().set_all();
-    let diagnostics_cfg = DiagnosticsConfig::default_strict();
-    let (res, info) = run_book(
-      book,
-      None,
-      RunOpts { linear: true, ..Default::default() },
-      compile_opts,
-      diagnostics_cfg,
-      None,
-    )?;
-    Ok(format!("{}{}", info.diagnostics, res))
-  });
 }
 
 #[test]
@@ -215,14 +198,20 @@ fn run_lazy() {
 }
 
 #[test]
-fn readback_lnet() {
+fn readback() {
   run_golden_test_dir(function_name!(), &|code, _| {
     let net = hvmc::ast::Net::from_str(code)?;
     let book = Book::default();
-    let compat_net = hvmc_to_net(&net);
-    let mut diags = Diagnostics::default();
-    let term = net_to_term(&compat_net, &book, &Labels::default(), false, &mut diags);
-    Ok(format!("{}{}", diags, term))
+    let mut non_linear_diags = Diagnostics::default();
+    let non_linear_term =
+      hvml::term::readback(&net, &book, &Labels::default(), false, &mut non_linear_diags, AdtEncoding::Scott);
+    let mut linear_diags = Diagnostics::default();
+    let linear_term =
+      hvml::term::readback(&net, &book, &Labels::default(), true, &mut linear_diags, AdtEncoding::Scott);
+    Ok(format!(
+      "non-linear:\n{}{}\n\nlinear:\n{}{}",
+      non_linear_diags, non_linear_term, linear_diags, linear_term
+    ))
   })
 }
 

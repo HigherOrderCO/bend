@@ -2,7 +2,7 @@
 #![feature(let_chains)]
 
 use builtins::{create_host, CORE_BUILTINS_USES};
-use diagnostics::{DiagnosticOrigin, Diagnostics, DiagnosticsConfig, Severity, WarningType};
+use diagnostics::{Diagnostics, DiagnosticsConfig, Severity, WarningType};
 use hvmc::{
   ast::Net,
   dispatch_dyn_net,
@@ -13,18 +13,18 @@ use hvmc_net::{
   mutual_recursion,
   pre_reduce::{pre_reduce, MAX_REWRITES_DEFAULT},
 };
-use net::hvmc_to_net::hvmc_to_net;
 use parking_lot::Mutex;
 use std::{sync::Arc, time::Instant};
-use term::{book_to_nets, net_to_term::net_to_term, term_to_net::Labels, AdtEncoding, Book, Ctx, Name, Term};
+use term::{encode_book, encoding::Labels, AdtEncoding, Book, Ctx, Name, Term};
 
 pub mod builtins;
 pub mod diagnostics;
 pub mod hvmc_net;
-pub mod net;
 pub mod term;
 
 pub use term::load_book::load_file_to_book;
+
+use crate::term::readback;
 
 pub const ENTRY_POINT: &str = "main";
 pub const HVM1_ENTRY_POINT: &str = "Main";
@@ -47,7 +47,7 @@ pub fn compile_book(
   args: Option<Vec<Term>>,
 ) -> Result<CompileResult, Diagnostics> {
   let mut diagnostics = desugar_book(book, opts.clone(), diagnostics_cfg, args)?;
-  let (mut core_book, labels) = book_to_nets(book, &mut diagnostics)?;
+  let (mut core_book, labels) = encode_book(book, &mut diagnostics)?;
 
   if opts.eta {
     core_book.values_mut().for_each(Net::eta_reduce);
@@ -181,7 +181,7 @@ pub fn run_book(
   let book = Arc::new(book);
   let labels = Arc::new(labels);
 
-  let debug_hook = run_opts.debug_hook(&book, &labels);
+  let debug_hook = run_opts.debug_hook(&book, &labels, compile_opts.adt_encoding);
 
   let host = create_host(book.clone(), labels.clone(), compile_opts.adt_encoding);
   host.lock().insert_book(&core_book);
@@ -189,7 +189,7 @@ pub fn run_book(
   let (res_lnet, stats) = run_compiled(host, max_memory, run_opts, debug_hook, book.hvmc_entrypoint());
 
   let (res_term, diagnostics) =
-    readback_hvmc(&res_lnet, &book, &labels, run_opts.linear, compile_opts.adt_encoding);
+    readback_with_errors(&res_lnet, &book, &labels, run_opts.linear, compile_opts.adt_encoding);
 
   let info = RunInfo { stats, diagnostics, net: res_lnet, book, labels };
   Ok((res_term, info))
@@ -255,7 +255,7 @@ pub fn run_compiled(
   })
 }
 
-pub fn readback_hvmc(
+pub fn readback_with_errors(
   net: &Net,
   book: &Arc<Book>,
   labels: &Arc<Labels>,
@@ -263,15 +263,7 @@ pub fn readback_hvmc(
   adt_encoding: AdtEncoding,
 ) -> (Term, Diagnostics) {
   let mut diags = Diagnostics::default();
-  let net = hvmc_to_net(net);
-  let mut term = net_to_term(&net, book, labels, linear, &mut diags);
-
-  let resugar_errs = term.resugar_adts(book, adt_encoding);
-  term.resugar_builtins();
-
-  for err in resugar_errs {
-    diags.add_diagnostic(err, Severity::Warning, DiagnosticOrigin::Readback);
-  }
+  let term = readback(net, book, labels, linear, &mut diags, adt_encoding);
 
   (term, diags)
 }
@@ -338,12 +330,16 @@ impl RunOpts {
     Self { lazy_mode: true, single_core: true, ..Self::default() }
   }
 
-  fn debug_hook<'a>(&'a self, book: &'a Book, labels: &'a Labels) -> Option<impl FnMut(&Net) + 'a> {
+  fn debug_hook<'a>(
+    &'a self,
+    book: &'a Book,
+    labels: &'a Labels,
+    adt_encoding: AdtEncoding,
+  ) -> Option<impl FnMut(&Net) + 'a> {
     self.debug.then_some({
-      |net: &_| {
-        let net = hvmc_to_net(net);
+      move |net: &_| {
         let mut diags = Diagnostics::default();
-        let res_term = net_to_term(&net, book, labels, self.linear, &mut diags);
+        let res_term = readback(net, book, labels, self.linear, &mut diags, adt_encoding);
         eprint!("{diags}");
         if self.pretty {
           println!("{}\n---------------------------------------", res_term.display_pretty(0));

@@ -1,0 +1,5 @@
+run
+tests/golden_tests/cli/debug_list_map_linear.hvm
+-d
+-l
+-1

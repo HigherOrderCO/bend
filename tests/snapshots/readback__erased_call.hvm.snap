@@ -1,0 +1,9 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/erased_call.hvm
+---
+non-linear:
+λa 0
+
+linear:
+λa let * = (a 123); 0

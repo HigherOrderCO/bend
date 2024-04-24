@@ -1,0 +1,9 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/church_mul.hvm
+---
+non-linear:
+λa λb (a (a (a (a (a (a b))))))
+
+linear:
+λ#1{a #1{b c}} let #0{d $e} = (a (b (c #0{$e $f}))); λ$f d

@@ -1,0 +1,9 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/simple_tup.hvm
+---
+non-linear:
+(0, 42)
+
+linear:
+(0, 42)

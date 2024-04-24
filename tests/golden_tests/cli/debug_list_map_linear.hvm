@@ -1,0 +1,6 @@
+(Map f []) = []
+(Map f (List.cons head tail)) = (List.cons (f head) (Map f tail))
+
+(Inc) = @x (+ x 1)
+
+(Main) = (Map Inc [1 41 0xFF 90])

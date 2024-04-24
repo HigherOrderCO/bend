@@ -151,6 +151,7 @@ impl fmt::Display for Pattern {
       Pattern::Fan(FanKind::Dup, tag, pats) => write!(f, "{}{{{}}}", tag, DisplayJoin(|| pats, " ")),
       Pattern::Lst(pats) => write!(f, "[{}]", DisplayJoin(|| pats, ", ")),
       Pattern::Str(str) => write!(f, "\"{str}\""),
+      Pattern::Err => write!(f, "<Invalid>"),
     }
   }
 }

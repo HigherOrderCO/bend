@@ -1,0 +1,9 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/u60.hvm
+---
+non-linear:
+1152921504606846975
+
+linear:
+1152921504606846975

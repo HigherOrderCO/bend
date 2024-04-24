@@ -12,15 +12,15 @@ use std::{borrow::Cow, collections::HashMap, ops::Deref};
 pub mod builtins;
 pub mod check;
 pub mod display;
+pub mod encoding;
 pub mod load_book;
-pub mod net_to_term;
 pub mod parser;
-pub mod term_to_net;
+pub mod readback;
 pub mod transform;
 
+pub use encoding::{encode_book, encode_term};
 pub use hvmc::ops::{IntOp, Op, Ty as OpType};
-pub use net_to_term::{net_to_term, ReadbackError};
-pub use term_to_net::{book_to_nets, term_to_net};
+pub use readback::readback;
 
 pub static STRINGS: GlobalPool<String> = GlobalPool::new();
 #[derive(Debug)]
@@ -158,7 +158,7 @@ pub enum FanKind {
   Dup,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Pattern {
   Var(Option<Name>),
   Chn(Name),
@@ -168,6 +168,8 @@ pub enum Pattern {
   Fan(FanKind, Tag, Vec<Pattern>),
   Lst(Vec<Pattern>),
   Str(GlobalString),
+  #[default]
+  Err,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -813,7 +815,9 @@ impl Pattern {
     multi_iterator!(ChildrenIter { Zero, Vec });
     match self {
       Pattern::Ctr(_, els) | Pattern::Fan(.., els) | Pattern::Lst(els) => ChildrenIter::Vec(els.iter()),
-      Pattern::Var(_) | Pattern::Chn(_) | Pattern::Num(_) | Pattern::Str(_) => ChildrenIter::Zero([]),
+      Pattern::Var(_) | Pattern::Chn(_) | Pattern::Num(_) | Pattern::Str(_) | Pattern::Err => {
+        ChildrenIter::Zero([])
+      }
     }
   }
 
@@ -821,7 +825,9 @@ impl Pattern {
     multi_iterator!(ChildrenIter { Zero, Vec });
     match self {
       Pattern::Ctr(_, els) | Pattern::Fan(.., els) | Pattern::Lst(els) => ChildrenIter::Vec(els.iter_mut()),
-      Pattern::Var(_) | Pattern::Chn(_) | Pattern::Num(_) | Pattern::Str(_) => ChildrenIter::Zero([]),
+      Pattern::Var(_) | Pattern::Chn(_) | Pattern::Num(_) | Pattern::Str(_) | Pattern::Err => {
+        ChildrenIter::Zero([])
+      }
     }
   }
 
@@ -853,13 +859,14 @@ impl Pattern {
         Term::Fan { fan: *fan, tag: tag.clone(), els: args.iter().map(|p| p.to_term()).collect() }
       }
       Pattern::Lst(_) | Pattern::Str(_) => todo!(),
+      Pattern::Err => Term::Err,
     }
   }
 
   pub fn has_unscoped(&self) -> bool {
     match self {
       Pattern::Chn(_) => true,
-      Pattern::Var(_) | Pattern::Str(_) | Pattern::Num(_) => false,
+      Pattern::Var(_) | Pattern::Str(_) | Pattern::Num(_) | Pattern::Err => false,
       Pattern::Ctr(_, x) | Pattern::Fan(_, _, x) | Pattern::Lst(x) => x.iter().any(|x| x.has_unscoped()),
     }
   }

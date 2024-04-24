@@ -1,0 +1,9 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/tup_add.hvm
+---
+non-linear:
+let (a, b) = (1, 2); (+ a b)
+
+linear:
+let (a, b) = (1, 2); (+ a b)

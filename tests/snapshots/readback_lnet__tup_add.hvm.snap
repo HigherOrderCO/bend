@@ -1,5 +1,0 @@
----
-source: tests/golden_tests.rs
-input_file: tests/golden_tests/readback_lnet/tup_add.hvm
----
-let (a, b) = (1, 2); (+ a b)

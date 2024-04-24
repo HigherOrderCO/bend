@@ -1,9 +1,9 @@
 use self::query::make_query_def;
 use crate::{
-  readback_hvmc,
+  readback_with_errors,
   term::{
     builtins::{RESULT_ERR, RESULT_OK, SCONS, SNIL},
-    term_to_net::Labels,
+    encoding::Labels,
     AdtEncoding, Book, Term,
   },
 };
@@ -36,7 +36,7 @@ pub fn create_host(book: Arc<Book>, labels: Arc<Labels>, adt_encoding: AdtEncodi
       let labels = labels.clone();
       move |tree| {
         let net = hvmc::ast::Net { root: tree, redexes: vec![] };
-        let (term, errs) = readback_hvmc(&net, &book, &labels, false, adt_encoding);
+        let (term, errs) = readback_with_errors(&net, &book, &labels, false, adt_encoding);
         println!("{}{}", errs.display_with_severity(crate::diagnostics::Severity::Error), term);
       }
     })
@@ -47,7 +47,7 @@ pub fn create_host(book: Arc<Book>, labels: Arc<Labels>, adt_encoding: AdtEncodi
       let labels = labels.clone();
       move |tree| {
         let net = hvmc::ast::Net { root: tree, redexes: vec![] };
-        let (term, _errs) = readback_hvmc(&net, &book, &labels, false, adt_encoding);
+        let (term, _errs) = readback_with_errors(&net, &book, &labels, false, adt_encoding);
         if let Term::Str { val } = &term {
           println!("{val}");
         }

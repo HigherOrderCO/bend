@@ -1,5 +1,0 @@
----
-source: tests/golden_tests.rs
-input_file: tests/golden_tests/linear_readback/church_mul.hvm
----
-λa λb let #0{c $g} = (let #1{d $h} = a; d let #1{e f} = $h; (e (f #0{$g b}))); c

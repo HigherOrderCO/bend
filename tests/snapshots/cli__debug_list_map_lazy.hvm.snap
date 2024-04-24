@@ -1,0 +1,223 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/cli/debug_list_map_lazy.hvm
+---
+Warnings:
+During readback:
+  Detected Unbound Variable. (2 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (2 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (2 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (2 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (2 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (2 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (2 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (3 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (3 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (3 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (3 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (3 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (3 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (3 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (5 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (5 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (5 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (5 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (5 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (5 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (5 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (4 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (3 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable. (2 occurrences)
+
+Warnings:
+During readback:
+  Detected Unbound Variable.
+
+(List.cons <Invalid> <Invalid>)
+---------------------------------------
+(List.cons <Invalid> <Invalid>)
+---------------------------------------
+(List.cons <Invalid> <Invalid>)
+---------------------------------------
+(List.cons <Invalid> <Invalid>)
+---------------------------------------
+(List.cons <Invalid> <Invalid>)
+---------------------------------------
+(List.cons <Invalid> <Invalid>)
+---------------------------------------
+(List.cons <Invalid> <Invalid>)
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> <Invalid>))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> <Invalid>))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> <Invalid>))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> <Invalid>))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> <Invalid>))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> <Invalid>))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> <Invalid>))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>)))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>)))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>)))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>)))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>)))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>)))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>)))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>))))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>))))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>))))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>))))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>))))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>))))
+---------------------------------------
+(List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> (List.cons <Invalid> <Invalid>))))
+---------------------------------------
+[<Invalid>, <Invalid>, <Invalid>, <Invalid>]
+---------------------------------------
+[<Invalid>, <Invalid>, <Invalid>, <Invalid>]
+---------------------------------------
+[<Invalid>, <Invalid>, <Invalid>, <Invalid>]
+---------------------------------------
+[<Invalid>, <Invalid>, <Invalid>, <Invalid>]
+---------------------------------------
+[<Invalid>, <Invalid>, <Invalid>, <Invalid>]
+---------------------------------------
+[<Invalid>, <Invalid>, <Invalid>, 91]
+---------------------------------------
+[<Invalid>, <Invalid>, 256, 91]
+---------------------------------------
+[<Invalid>, 42, 256, 91]
+---------------------------------------
+[2, 42, 256, 91]
+---------------------------------------
+[2, 42, 256, 91]

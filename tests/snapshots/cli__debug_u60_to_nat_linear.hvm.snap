@@ -1,6 +1,6 @@
 ---
 source: tests/golden_tests.rs
-input_file: tests/golden_tests/cli/debug_u60_to_nat.hvm
+input_file: tests/golden_tests/cli/debug_u60_to_nat_linear.hvm
 ---
 (λa (U60ToNat a) 4)
 ---------------------------------------

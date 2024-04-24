@@ -1,0 +1,17 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/bad_net.hvm
+---
+non-linear:
+Warnings:
+During readback:
+  Detected Unbound Variable.
+
+<Invalid>
+
+linear:
+Warnings:
+During readback:
+  Detected unbound variable
+
+<Invalid>

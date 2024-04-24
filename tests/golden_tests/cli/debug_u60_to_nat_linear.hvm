@@ -1,0 +1,8 @@
+data Nat_ = (Z) | (S nat)
+
+U60ToNat n = switch n {
+  0: Z
+  _: (S (U60ToNat n-1))
+}
+
+(Main n) = (U60ToNat n)

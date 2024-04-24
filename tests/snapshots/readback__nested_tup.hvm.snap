@@ -1,0 +1,9 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/readback/nested_tup.hvm
+---
+non-linear:
+((1, 2), (4, (3, 5)))
+
+linear:
+((1, 2), (4, (3, 5)))
