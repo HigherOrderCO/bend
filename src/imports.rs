@@ -12,7 +12,7 @@ pub struct Imports {
   /// Imports declared in the program source.
   names: Vec<(Name, Vec<Name>)>,
 
-  /// Map from binded names to source package.
+  /// Map from bound names to source package.
   map: IndexMap<Name, Name>,
 
   /// Imported packages to be loaded in the program.
