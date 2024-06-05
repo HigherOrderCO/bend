@@ -17,10 +17,11 @@ pub mod diagnostics;
 pub mod fun;
 pub mod hvm;
 pub mod imp;
+pub mod imports;
 pub mod net;
 mod utils;
 
-pub use fun::load_book::load_file_to_book;
+pub use fun::load_book::{load_file_to_book, load_to_book};
 
 pub const ENTRY_POINT: &str = "main";
 pub const HVM1_ENTRY_POINT: &str = "Main";

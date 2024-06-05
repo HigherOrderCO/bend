@@ -25,7 +25,7 @@ impl Book {
         };
 
         let rules = vec![Rule { pats: vec![], body }];
-        let def = Definition { name: ctr_name.clone(), rules, builtin: adt.builtin };
+        let def = Definition::new(ctr_name.clone(), rules, adt.source.clone());
         defs.push((ctr_name.clone(), def));
       }
     }
@@ -67,5 +67,5 @@ fn encode_ctr_num_scott<'a>(ctr_args: impl DoubleEndedIterator<Item = &'a Name> 
 
 fn make_tag_def(ctr_idx: usize, tag: &Name, adt: &crate::fun::Adt) -> Definition {
   let tag_rule = vec![Rule { pats: vec![], body: Term::Num { val: Num::U24(ctr_idx as u32) } }];
-  Definition { name: tag.clone(), rules: tag_rule, builtin: adt.builtin }
+  Definition::new(tag.clone(), tag_rule, adt.source.clone())
 }

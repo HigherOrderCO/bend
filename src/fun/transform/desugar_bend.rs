@@ -1,6 +1,6 @@
 use crate::{
   diagnostics::Diagnostics,
-  fun::{Ctx, Definition, Name, Rule, Term},
+  fun::{Ctx, Definition, Name, Rule, Source, Term},
   maybe_grow,
 };
 
@@ -14,7 +14,7 @@ impl Ctx<'_> {
     for def in self.book.defs.values_mut() {
       let mut fresh = 0;
       for rule in def.rules.iter_mut() {
-        if let Err(err) = rule.body.desugar_bend(&def.name, &mut fresh, &mut new_defs, def.builtin) {
+        if let Err(err) = rule.body.desugar_bend(&def.name, &mut fresh, &mut new_defs, &def.source) {
           self.info.add_rule_error(err, def.name.clone());
           break;
         }
@@ -35,12 +35,12 @@ impl Term {
     def_name: &Name,
     fresh: &mut usize,
     new_defs: &mut Vec<Definition>,
-    builtin: bool,
+    source: &Source,
   ) -> Result<(), String> {
     maybe_grow(|| {
       // Recursively encode bends in the children
       for child in self.children_mut() {
-        child.desugar_bend(def_name, fresh, new_defs, builtin)?;
+        child.desugar_bend(def_name, fresh, new_defs, source)?;
       }
 
       // Convert a bend into a new recursive function and call it.
@@ -88,7 +88,7 @@ impl Term {
         let body = Term::rfold_lams(body, free_vars.iter().cloned().map(Some));
 
         // Make a definition from the new function
-        let def = Definition { name: new_nam.clone(), rules: vec![Rule { pats: vec![], body }], builtin };
+        let def = Definition::new(new_nam.clone(), vec![Rule { pats: vec![], body }], source.clone());
         new_defs.push(def);
 
         // Call the new function in the original term.

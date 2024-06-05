@@ -42,7 +42,7 @@ impl Book {
         }
       }
 
-      let builtin = def.builtin;
+      let builtin = def.is_builtin();
       let body = &mut def.rule_mut().body;
       ctx.reset();
       ctx.def_size = body.size();
@@ -117,7 +117,7 @@ impl Term {
     let extracted_term = std::mem::replace(self, comb_ref);
 
     let rules = vec![Rule { body: extracted_term, pats: Vec::new() }];
-    let rule = Definition { name: comb_name.clone(), rules, builtin };
+    let rule = Definition::new_gen(comb_name.clone(), rules, builtin);
     ctx.combinators.insert(comb_name, (is_safe, rule));
   }
 }

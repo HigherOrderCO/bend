@@ -2,14 +2,50 @@ use std::ops::Range;
 
 use crate::{
   fun::{
-    display::DisplayFn, Adt, Book, CtrField, Definition, FanKind, HvmDefinition, MatchRule, Name, Num, Op,
-    Pattern, Rule, Tag, Term, STRINGS,
+    display::DisplayFn, Adt, Adts, Constructors, CtrField, FanKind, HvmDefinition, HvmDefinitions, MatchRule,
+    Name, Num, Op, Pattern, Rule, Source, Tag, Term, STRINGS,
   },
   imp::{parser::PyParser, Enum, Variant},
+  imports::Imports,
   maybe_grow,
 };
 use highlight_error::highlight_error;
+use indexmap::IndexMap;
 use TSPL::Parser;
+
+type FunDefinition = super::Definition;
+type ImpDefinition = crate::imp::Definition;
+
+/// Intermediate representation of a program.
+#[derive(Debug, Clone, Default)]
+pub struct ParseBook {
+  /// The `functional` function definitions.
+  pub fun_defs: IndexMap<Name, FunDefinition>,
+
+  /// The `imperative` function definitions.
+  pub imp_defs: IndexMap<Name, (ImpDefinition, Source)>,
+
+  /// HVM native function definitions.
+  pub hvm_defs: HvmDefinitions,
+
+  /// The algebraic datatypes defined by the program
+  pub adts: Adts,
+
+  /// To which type does each constructor belong to.
+  pub ctrs: Constructors,
+
+  /// Imported packages to be loaded in the program
+  pub imports: Imports,
+}
+
+impl ParseBook {
+  pub fn contains_def(&self, name: &Name) -> bool {
+    self.fun_defs.contains_key(name) || self.imp_defs.contains_key(name)
+  }
+  pub fn contains_builtin_def(&self, name: &Name) -> Option<bool> {
+    self.fun_defs.get(name).map(|d| d.is_builtin()).or(self.imp_defs.get(name).map(|(_, s)| s.is_builtin()))
+  }
+}
 
 // Bend grammar description:
 // <Book>       ::= (<Data> | <Rule>)*
@@ -65,7 +101,7 @@ impl<'a> TermParser<'a> {
 
   /* AST parsing functions */
 
-  pub fn parse_book(&mut self, default_book: Book, builtin: bool) -> ParseResult<Book> {
+  pub fn parse_book(&mut self, default_book: ParseBook, builtin: bool) -> ParseResult<ParseBook> {
     let mut book = default_book;
     let mut indent = self.advance_newlines()?;
     let mut last_rule = None;
@@ -116,8 +152,10 @@ impl<'a> TermParser<'a> {
         // Fun type definition
         } else {
           self.index = rewind_index;
-          let (nam, adt) = self.parse_datatype(builtin)?;
+          let (nam, ctrs) = self.parse_datatype()?;
           let end_idx = *self.index();
+          let source = if builtin { Source::Builtin } else { Source::Local(ini_idx..end_idx) };
+          let adt = Adt { ctrs, source };
           self.add_fun_type(&mut book, nam, adt, ini_idx..end_idx)?;
           indent = self.advance_newlines()?;
           last_rule = None;
@@ -135,10 +173,25 @@ impl<'a> TermParser<'a> {
         continue;
       }
 
+      // Import declaration
+      if self.try_parse_keyword("use") {
+        let (import, sub_imports) = self.parse_import()?;
+        book.imports.add_import(import, sub_imports);
+        indent = self.advance_newlines()?;
+        last_rule = None;
+        continue;
+      }
+
       // Fun function definition
       let ini_idx = *self.index();
       let (name, rule) = self.parse_rule()?;
       let end_idx = *self.index();
+
+      if let Some((_, source)) = book.imp_defs.get(&name) {
+        let msg = Self::redefinition_of_function_msg(source.is_builtin(), &name);
+        return self.with_ctx(Err(msg), ini_idx..end_idx);
+      }
+
       self.add_fun_def(&name, rule, builtin, &last_rule, &mut book, ini_idx..end_idx)?;
       indent = self.advance_newlines()?;
       last_rule = Some(name);
@@ -147,7 +200,7 @@ impl<'a> TermParser<'a> {
     Ok(book)
   }
 
-  fn parse_datatype(&mut self, builtin: bool) -> ParseResult<(Name, Adt)> {
+  fn parse_datatype(&mut self) -> ParseResult<(Name, IndexMap<Name, Vec<CtrField>>)> {
     // type name = ctr (| ctr)*
     self.skip_trivia();
     let name = self.labelled(|p| p.parse_top_level_name(), "datatype name")?;
@@ -157,8 +210,7 @@ impl<'a> TermParser<'a> {
       ctrs.push(self.parse_datatype_ctr(&name)?);
     }
     let ctrs = ctrs.into_iter().collect();
-    let adt = Adt { ctrs, builtin };
-    Ok((name, adt))
+    Ok((name, ctrs))
   }
 
   fn parse_datatype_ctr(&mut self, typ_name: &Name) -> ParseResult<(Name, Vec<CtrField>)> {
@@ -199,6 +251,19 @@ impl<'a> TermParser<'a> {
     *self.index() = ini_idx + *p.index();
     let def = HvmDefinition { name: name.clone(), body, builtin };
     Ok(def)
+  }
+
+  fn parse_import(&mut self) -> Result<(Name, Vec<Name>), String> {
+    // use package
+    self.skip_trivia();
+    let import = self.labelled(|p| p.parse_restricted_name("Top-level"), "import name")?;
+
+    if self.try_consume("{") {
+      let sub = self.list_like(|p| p.parse_bend_name(), "", "}", ",", false, 0)?;
+      return Ok((import, sub));
+    }
+
+    Ok((import, Vec::new()))
   }
 
   fn parse_rule(&mut self) -> ParseResult<(Name, Rule)> {
@@ -744,28 +809,32 @@ impl<'a> TermParser<'a> {
     rule: Rule,
     builtin: bool,
     last_rule: &Option<Name>,
-    book: &mut Book,
+    book: &mut ParseBook,
     span: Range<usize>,
   ) -> ParseResult<()> {
-    match (book.defs.get_mut(name), last_rule) {
+    match (book.fun_defs.get_mut(name), last_rule) {
       // Continuing with a new rule to the current definition
       (Some(def), Some(last_rule)) if last_rule == name => {
         def.rules.push(rule);
+        if let Source::Local(s) = &mut def.source {
+          s.end = span.end;
+        }
       }
       // Trying to add a new rule to a previous definition, coming from a different rule.
       (Some(def), Some(_)) => {
-        let msg = Self::redefinition_of_function_msg(def.builtin, name);
+        let msg = Self::redefinition_of_function_msg(def.is_builtin(), name);
         return self.with_ctx(Err(msg), span);
       }
       // Trying to add a new rule to a previous definition, coming from another kind of top-level.
       (Some(def), None) => {
-        let msg = Self::redefinition_of_function_msg(def.builtin, name);
+        let msg = Self::redefinition_of_function_msg(def.is_builtin(), name);
         return self.with_ctx(Err(msg), span);
       }
       // Adding the first rule of a new definition
       (None, _) => {
-        self.check_top_level_redefinition(name, book, span)?;
-        book.defs.insert(name.clone(), Definition { name: name.clone(), rules: vec![rule], builtin });
+        self.check_top_level_redefinition(name, book, span.clone())?;
+        let source = if builtin { Source::Builtin } else { Source::Local(span) };
+        book.fun_defs.insert(name.clone(), FunDefinition::new(name.clone(), vec![rule], source));
       }
     }
     Ok(())
@@ -773,20 +842,18 @@ impl<'a> TermParser<'a> {
 
   fn add_imp_def(
     &mut self,
-    mut def: crate::imp::Definition,
-    book: &mut Book,
+    def: crate::imp::Definition,
+    book: &mut ParseBook,
     span: Range<usize>,
     builtin: bool,
   ) -> ParseResult<()> {
-    self.check_top_level_redefinition(&def.name, book, span)?;
-    def.order_kwargs(book)?;
-    def.gen_map_get();
-    let def = def.to_fun(builtin)?;
-    book.defs.insert(def.name.clone(), def);
+    self.check_top_level_redefinition(&def.name, book, span.clone())?;
+    let source = if builtin { Source::Builtin } else { Source::Local(span) };
+    book.imp_defs.insert(def.name.clone(), (def, source));
     Ok(())
   }
 
-  fn add_hvm(&mut self, def: HvmDefinition, book: &mut Book, span: Range<usize>) -> ParseResult<()> {
+  fn add_hvm(&mut self, def: HvmDefinition, book: &mut ParseBook, span: Range<usize>) -> ParseResult<()> {
     self.check_top_level_redefinition(&def.name, book, span)?;
     book.hvm_defs.insert(def.name.clone(), def);
     Ok(())
@@ -795,12 +862,13 @@ impl<'a> TermParser<'a> {
   fn add_imp_type(
     &mut self,
     enum_: Enum,
-    book: &mut Book,
+    book: &mut ParseBook,
     span: Range<usize>,
     builtin: bool,
   ) -> ParseResult<()> {
     self.check_type_redefinition(&enum_.name, book, span.clone())?;
-    let mut adt = Adt { ctrs: Default::default(), builtin };
+    let source = if builtin { Source::Builtin } else { Source::Local(span.clone()) };
+    let mut adt = Adt { ctrs: Default::default(), source };
     for variant in enum_.variants {
       self.check_top_level_redefinition(&enum_.name, book, span.clone())?;
       book.ctrs.insert(variant.name.clone(), enum_.name.clone());
@@ -810,7 +878,13 @@ impl<'a> TermParser<'a> {
     Ok(())
   }
 
-  fn add_fun_type(&mut self, book: &mut Book, nam: Name, adt: Adt, span: Range<usize>) -> ParseResult<()> {
+  fn add_fun_type(
+    &mut self,
+    book: &mut ParseBook,
+    nam: Name,
+    adt: Adt,
+    span: Range<usize>,
+  ) -> ParseResult<()> {
     if book.adts.contains_key(&nam) {
       let msg = TermParser::redefinition_of_type_msg(&nam);
       return self.with_ctx(Err(msg), span);
@@ -832,13 +906,14 @@ impl<'a> TermParser<'a> {
   fn add_object(
     &mut self,
     obj: Variant,
-    book: &mut Book,
+    book: &mut ParseBook,
     span: Range<usize>,
     builtin: bool,
   ) -> ParseResult<()> {
     self.check_type_redefinition(&obj.name, book, span.clone())?;
-    self.check_top_level_redefinition(&obj.name, book, span)?;
-    let mut adt = Adt { ctrs: Default::default(), builtin };
+    self.check_top_level_redefinition(&obj.name, book, span.clone())?;
+    let source = if builtin { Source::Builtin } else { Source::Local(span) };
+    let mut adt = Adt { ctrs: Default::default(), source };
     book.ctrs.insert(obj.name.clone(), obj.name.clone());
     adt.ctrs.insert(obj.name.clone(), obj.fields);
     book.adts.insert(obj.name, adt);
@@ -848,11 +923,11 @@ impl<'a> TermParser<'a> {
   fn check_top_level_redefinition(
     &mut self,
     name: &Name,
-    book: &mut Book,
+    book: &mut ParseBook,
     span: Range<usize>,
   ) -> ParseResult<()> {
-    if let Some(def) = book.defs.get(name) {
-      let msg = Self::redefinition_of_function_msg(def.builtin, name);
+    if let Some(builtin) = book.contains_builtin_def(name) {
+      let msg = Self::redefinition_of_function_msg(builtin, name);
       return self.with_ctx(Err(msg), span);
     }
     if book.ctrs.contains_key(name) {
@@ -866,7 +941,12 @@ impl<'a> TermParser<'a> {
     Ok(())
   }
 
-  fn check_type_redefinition(&mut self, name: &Name, book: &mut Book, span: Range<usize>) -> ParseResult<()> {
+  fn check_type_redefinition(
+    &mut self,
+    name: &Name,
+    book: &mut ParseBook,
+    span: Range<usize>,
+  ) -> ParseResult<()> {
     if book.adts.contains_key(name) {
       let msg = Self::redefinition_of_type_msg(name);
       return self.with_ctx(Err(msg), span);
@@ -959,8 +1039,6 @@ impl Indent {
     }
   }
 }
-
-impl Book {}
 
 impl<'a> ParserCommons<'a> for TermParser<'a> {}
 

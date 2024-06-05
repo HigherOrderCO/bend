@@ -3,10 +3,12 @@ use bend::{
   diagnostics::{Diagnostics, DiagnosticsConfig, Severity},
   fun::{Book, Name},
   hvm::hvm_book_show_pretty,
+  imports::DefaultLoader,
   load_file_to_book, run_book, AdtEncoding, CompileOpts, OptLevel, RunOpts,
 };
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use std::{
+  collections::HashSet,
   path::{Path, PathBuf},
   process::ExitCode,
 };
@@ -250,7 +252,8 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
   let entrypoint = cli.entrypoint.take();
 
   let load_book = |path: &Path| -> Result<Book, Diagnostics> {
-    let mut book = load_file_to_book(path)?;
+    let package_loader = DefaultLoader { local_path: path.to_path_buf(), loaded: HashSet::new() };
+    let mut book = load_file_to_book(path, package_loader)?;
     book.entrypoint = entrypoint.map(Name::new);
 
     if arg_verbose {

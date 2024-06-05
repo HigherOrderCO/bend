@@ -2,11 +2,30 @@ use super::{AssignPattern, Definition, Expr, InPlaceOp, Stmt};
 use crate::fun::{
   self,
   builtins::{LCONS, LNIL},
-  Name,
+  parser::ParseBook,
+  Book, Name, Source,
 };
 
+impl ParseBook {
+  pub fn to_fun(mut self) -> Result<Book, String> {
+    for (name, (mut def, source)) in std::mem::take(&mut self.imp_defs) {
+      def.order_kwargs(&self)?;
+      def.gen_map_get();
+
+      if self.fun_defs.contains_key(&name) {
+        panic!("Def names collision should be checked at parse time")
+      }
+
+      self.fun_defs.insert(name, def.to_fun(source)?);
+    }
+
+    let ParseBook { fun_defs: defs, imp_defs: _, hvm_defs, adts, ctrs, imports } = self;
+    Ok(Book { defs, hvm_defs, adts, ctrs, entrypoint: None, imports: imports.to_names() })
+  }
+}
+
 impl Definition {
-  pub fn to_fun(self, builtin: bool) -> Result<fun::Definition, String> {
+  pub fn to_fun(self, source: Source) -> Result<fun::Definition, String> {
     let body = self.body.into_fun().map_err(|e| format!("In function '{}': {}", self.name, e))?;
     let body = match body {
       StmtToFun::Return(term) => term,
@@ -18,7 +37,7 @@ impl Definition {
     let rule =
       fun::Rule { pats: self.params.into_iter().map(|param| fun::Pattern::Var(Some(param))).collect(), body };
 
-    let def = fun::Definition { name: self.name, rules: vec![rule], builtin };
+    let def = fun::Definition::new(self.name, vec![rule], source);
     Ok(def)
   }
 }
@@ -407,7 +426,7 @@ impl Expr {
       Expr::Ctr { name, args, kwargs } => {
         assert!(kwargs.is_empty());
         let args = args.into_iter().map(Self::to_fun);
-        fun::Term::call(fun::Term::Ref { nam: name }, args)
+        fun::Term::call(fun::Term::Var { nam: name }, args)
       }
       Expr::LstMap { term, bind, iter, cond } => {
         const ITER_TAIL: &str = "%iter.tail";

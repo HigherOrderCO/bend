@@ -12,6 +12,8 @@ input_file: tests/golden_tests/desugar_file/tree_syntax.bend
 
 (fun4) = λa switch a { 0: (Tree/Leaf 0); _: fun4__C0; }
 
+(main) = *
+
 (imp0) = (Tree/Node (Tree/Leaf 0) (Tree/Node (Tree/Leaf 1) (Tree/Node (Tree/Leaf 2) (Tree/Leaf 3))))
 
 (imp1) = (Tree/Leaf (Tree/Node (Tree/Leaf *) (Tree/Leaf *)))
@@ -21,8 +23,6 @@ input_file: tests/golden_tests/desugar_file/tree_syntax.bend
 (imp3) = (Tree/Leaf 1)
 
 (imp4) = λa switch a { 0: (Tree/Leaf 0); _: imp4__C0; }
-
-(main) = *
 
 (Tree/Node) = λa λb λc (c Tree/Node/tag a b)
 

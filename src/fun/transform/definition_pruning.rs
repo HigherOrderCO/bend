@@ -33,7 +33,7 @@ impl Ctx<'_> {
 
     // Get the functions that are accessible from non-builtins.
     for def in self.book.defs.values() {
-      if !def.builtin && !(used.get(&def.name) == Some(&Used::Main)) {
+      if !def.is_builtin() && !(used.get(&def.name) == Some(&Used::Main)) {
         if self.book.ctrs.contains_key(&def.name) {
           used.insert(def.name.clone(), Used::Ctr);
         } else {
@@ -72,7 +72,7 @@ impl Ctx<'_> {
             // Prune if `prune_all`, otherwise show a warning.
             if prune_all {
               rm_def(self.book, &def);
-            } else {
+            } else if !def.is_generated() {
               self.info.add_rule_warning("Definition is unused.", WarningType::UnusedDefinition, def);
             }
           }
