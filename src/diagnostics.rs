@@ -22,6 +22,7 @@ pub struct DiagnosticsConfig {
   pub unused_definition: Severity,
   pub repeated_bind: Severity,
   pub recursion_cycle: Severity,
+  pub missing_main: Severity,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +58,7 @@ pub enum WarningType {
   UnusedDefinition,
   RepeatedBind,
   RecursionCycle,
+  MissingMain,
 }
 
 impl Diagnostics {
@@ -235,6 +237,8 @@ impl DiagnosticsConfig {
       unused_definition: severity,
       repeated_bind: severity,
       recursion_cycle: severity,
+      // Should only be changed manually, as a missing main is always a error to hvm
+      missing_main: Severity::Error,
       verbose,
     }
   }
@@ -247,6 +251,7 @@ impl DiagnosticsConfig {
       WarningType::IrrefutableMatch => self.irrefutable_match,
       WarningType::RedundantMatch => self.redundant_match,
       WarningType::UnreachableMatch => self.unreachable_match,
+      WarningType::MissingMain => self.missing_main,
     }
   }
 }

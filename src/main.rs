@@ -232,6 +232,7 @@ pub enum WarningArgs {
   UnusedDefinition,
   RepeatedBind,
   RecursionCycle,
+  MissingMain,
 }
 
 fn main() -> ExitCode {
@@ -403,6 +404,7 @@ fn set_warning_cfg_from_cli(mut cfg: DiagnosticsConfig, warn_opts: CliWarnOpts) 
       WarningArgs::UnusedDefinition => cfg.unused_definition = severity,
       WarningArgs::RepeatedBind => cfg.repeated_bind = severity,
       WarningArgs::RecursionCycle => cfg.recursion_cycle = severity,
+      WarningArgs::MissingMain => cfg.missing_main = severity,
     }
   }
 
