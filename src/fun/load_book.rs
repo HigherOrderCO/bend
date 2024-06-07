@@ -21,7 +21,7 @@ pub fn load_to_book<T: Display>(
   let builtins = ParseBook::builtins();
   let mut book = do_parse_book(code, origin, builtins)?;
 
-  book.imports.load_imports(&mut package_loader)?;
+  book.imports.load_imports(None, &mut package_loader)?;
   book.apply_imports()?;
 
   let mut book = book.to_fun()?;

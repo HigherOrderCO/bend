@@ -30,13 +30,18 @@ impl Imports {
     self.names
   }
 
-  pub fn load_imports(&mut self, loader: &mut impl PackageLoader) -> Result<(), String> {
+  pub fn load_imports(&mut self, dir: Option<Name>, loader: &mut impl PackageLoader) -> Result<(), String> {
     for (src, sub_imports) in &self.names {
+      // TODO: Would this be correct when handling non-local imports? Do we want relative online sources?
+      // TODO: Normalize paths when using `..`
+      let src = dir.as_ref().map_or(src.clone(), |p| Name::new(format!("{}/{}", p, src)));
+
       let packages = loader.load(src.clone(), sub_imports)?;
 
       for (psrc, code) in packages {
         let mut module = do_parse_book(&code, &psrc, ParseBook::default())?;
-        module.imports.load_imports(loader)?;
+        let parent_dir = psrc.rsplit_once('/').map(|(s, _)| Name::new(s)).unwrap_or(psrc.clone());
+        module.imports.load_imports(Some(parent_dir), loader)?;
         self.pkgs.push((psrc, module));
       }
 
