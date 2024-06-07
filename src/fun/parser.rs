@@ -6,7 +6,7 @@ use crate::{
     Name, Num, Op, Pattern, Rule, Source, Tag, Term, STRINGS,
   },
   imp::{parser::PyParser, Enum, Variant},
-  imports::Imports,
+  imports::{ImportType, Imports},
   maybe_grow,
 };
 use highlight_error::highlight_error;
@@ -255,19 +255,25 @@ impl<'a> TermParser<'a> {
     Ok(def)
   }
 
-  fn parse_import(&mut self) -> Result<(Name, Vec<Name>), String> {
+  fn parse_import(&mut self) -> Result<(Name, ImportType), String> {
     // use package
     self.skip_trivia();
     let import = self.labelled(|p| p.parse_restricted_name("Top-level"), "import name")?;
 
     if self.try_consume("{") {
+      if self.try_consume("*") {
+        self.consume("}")?;
+        return Ok((import, ImportType::Glob));
+      }
+
       let sub = self.list_like(|p| p.parse_bend_name(), "", "}", ",", false, 0)?;
-      return Ok((import, sub));
+      let imp_type = if sub.is_empty() { ImportType::Simple } else { ImportType::List(sub) };
+
+      return Ok((import, imp_type));
     }
 
-    Ok((import, Vec::new()))
+    Ok((import, ImportType::Simple))
   }
-
   fn parse_rule(&mut self) -> ParseResult<(Name, Rule)> {
     // (name pat*) = term
     // name pat* = term

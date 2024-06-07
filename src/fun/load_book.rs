@@ -15,7 +15,7 @@ pub fn load_file_to_book(
   path: &Path,
   package_loader: impl PackageLoader,
   diag: DiagnosticsConfig,
-) -> Result<Book, String> {
+) -> Result<Book, Diagnostics> {
   let code = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
   load_to_book(path.display(), &code, package_loader, diag)
 }
@@ -25,7 +25,7 @@ pub fn load_to_book<T: Display>(
   code: &str,
   mut package_loader: impl PackageLoader,
   diag: DiagnosticsConfig,
-) -> Result<Book, String> {
+) -> Result<Book, Diagnostics> {
   let builtins = ParseBook::builtins();
   let mut book = do_parse_book(code, origin, builtins)?;
 

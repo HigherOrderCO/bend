@@ -3,14 +3,14 @@ use crate::{
   fun::{load_book::do_parse_book, parser::ParseBook, Adt, Name, Source, Term},
   imp::{Expr, Stmt},
 };
-use indexmap::IndexMap;
+use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 use std::{collections::HashSet, path::PathBuf};
 
 #[derive(Debug, Clone, Default)]
 pub struct Imports {
   /// Imports declared in the program source.
-  names: Vec<(Name, Vec<Name>)>,
+  names: Vec<(Name, ImportType)>,
 
   /// Map from bound names to source package.
   map: IndexMap<Name, Name>,
@@ -18,15 +18,22 @@ pub struct Imports {
   /// Imported packages to be loaded in the program.
   /// When loaded, the book contents are drained to the parent book,
   /// adjusting def names accordingly.
-  pkgs: Vec<(Name, ParseBook)>,
+  pkgs: IndexMap<Name, ParseBook>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ImportType {
+  Simple,
+  List(Vec<Name>),
+  Glob,
 }
 
 impl Imports {
-  pub fn add_import(&mut self, import: Name, sub_imports: Vec<Name>) {
-    self.names.push((import, sub_imports));
+  pub fn add_import(&mut self, import: Name, import_type: ImportType) {
+    self.names.push((import, import_type));
   }
 
-  pub fn to_names(self) -> Vec<(Name, Vec<Name>)> {
+  pub fn to_names(self) -> Vec<(Name, ImportType)> {
     self.names
   }
 
@@ -35,34 +42,55 @@ impl Imports {
     dir: Option<Name>,
     loader: &mut impl PackageLoader,
     diag: &mut Diagnostics,
-  ) -> Result<(), String> {
-    for (src, sub_imports) in &self.names {
+  ) -> Result<(), Diagnostics> {
+    diag.start_pass();
+
+    for (src, imp_type) in &self.names {
       // TODO: Would this be correct when handling non-local imports? Do we want relative online sources?
       // TODO: Normalize paths when using `..`
       let src = dir.as_ref().map_or(src.clone(), |p| Name::new(format!("{}/{}", p, src)));
 
-      let packages = loader.load(src.clone(), sub_imports)?;
+      let packages = loader.load(src.clone(), imp_type)?;
 
       for (psrc, code) in packages {
         let mut module = do_parse_book(&code, &psrc, ParseBook::default())?;
         let parent_dir = psrc.rsplit_once('/').map(|(s, _)| Name::new(s)).unwrap_or(psrc.clone());
         module.imports.load_imports(Some(parent_dir), loader, diag)?;
-        self.pkgs.push((psrc, module));
+        self.pkgs.insert(psrc, module);
       }
 
-      if sub_imports.is_empty() {
-        let name = Name::new(src.split('/').last().unwrap());
-        let src = format!("{}/{}", src, name);
-        add_bind(&mut self.map, name, &src, diag);
-      } else {
-        for sub in sub_imports {
-          let src = format!("{}/{}", src, sub);
-          add_bind(&mut self.map, sub.clone(), &src, diag);
+      match imp_type {
+        ImportType::Simple => {
+          let name = Name::new(src.split('/').last().unwrap());
+          let src = format!("{}/{}", src, name);
+          add_bind(&mut self.map, name, &src, diag);
+        }
+        ImportType::List(names) => {
+          let book = self.pkgs.get(&src).unwrap();
+
+          for sub in names {
+            if !book.top_level_names().contains(sub) {
+              let err = format!("Package `{src}` does not contain the top level name `{sub}`");
+              diag.add_book_error(err);
+              continue;
+            }
+
+            let src = format!("{}/{}", src, sub);
+            add_bind(&mut self.map, sub.clone(), &src, diag);
+          }
+        }
+        ImportType::Glob => {
+          let book = self.pkgs.get(&src).unwrap();
+
+          for sub in book.top_level_names() {
+            let src = format!("{}/{}", src, sub);
+            add_bind(&mut self.map, sub.clone(), &src, diag);
+          }
         }
       }
     }
 
-    Ok(())
+    diag.fatal(())
   }
 }
 
@@ -74,6 +102,15 @@ fn add_bind(map: &mut IndexMap<Name, Name>, name: Name, src: &str, diag: &mut Di
 }
 
 impl ParseBook {
+  fn top_level_names(&self) -> impl Iterator<Item = &Name> {
+    let imp_defs = self.imp_defs.keys();
+    let fun_defs = self.fun_defs.keys();
+    let adts = self.adts.keys();
+    let ctrs = self.ctrs.keys();
+
+    imp_defs.chain(fun_defs).chain(adts).chain(ctrs)
+  }
+
   pub fn apply_imports(&mut self, diag: &mut Diagnostics) -> Result<(), String> {
     self.apply_imports_go(None, diag)
   }
@@ -348,7 +385,7 @@ impl Stmt {
 }
 
 pub trait PackageLoader {
-  fn load(&mut self, name: Name, sub_names: &[Name]) -> Result<Vec<(Name, String)>, String>;
+  fn load(&mut self, name: Name, import_type: &ImportType) -> Result<Vec<(Name, String)>, String>;
   fn is_loaded(&self, name: &Name) -> bool;
 }
 
@@ -358,7 +395,7 @@ pub struct DefaultLoader {
 }
 
 impl PackageLoader for DefaultLoader {
-  fn load(&mut self, name: Name, _sub_names: &[Name]) -> Result<Vec<(Name, String)>, String> {
+  fn load(&mut self, name: Name, _import_type: &ImportType) -> Result<Vec<(Name, String)>, String> {
     if !self.is_loaded(&name) {
       // TODO: Should the local filesystem be searched anyway for each sub_name?
       // TODO: If the name to load is a folder, and we have sub names, we should load those files instead?

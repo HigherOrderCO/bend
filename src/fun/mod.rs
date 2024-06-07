@@ -1,5 +1,6 @@
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
+  imports::ImportType,
   maybe_grow, multi_iterator, ENTRY_POINT,
 };
 use indexmap::{IndexMap, IndexSet};
@@ -56,7 +57,7 @@ pub struct Book {
   pub entrypoint: Option<Name>,
 
   /// Imports declared in the program.
-  pub imports: Vec<(Name, Vec<Name>)>,
+  pub imports: Vec<(Name, ImportType)>,
 }
 
 pub type Definitions = IndexMap<Name, Definition>;
