@@ -1,8 +1,8 @@
 use crate::{
+  diagnostics::{Diagnostics, WarningType},
   fun::{load_book::do_parse_book, parser::ParseBook, Adt, Name, Source, Term},
   imp::{Expr, Stmt},
 };
-use indexmap::map::Entry;
 use indexmap::IndexMap;
 use itertools::Itertools;
 use std::{collections::HashSet, path::PathBuf};
@@ -30,7 +30,12 @@ impl Imports {
     self.names
   }
 
-  pub fn load_imports(&mut self, dir: Option<Name>, loader: &mut impl PackageLoader) -> Result<(), String> {
+  pub fn load_imports(
+    &mut self,
+    dir: Option<Name>,
+    loader: &mut impl PackageLoader,
+    diag: &mut Diagnostics,
+  ) -> Result<(), String> {
     for (src, sub_imports) in &self.names {
       // TODO: Would this be correct when handling non-local imports? Do we want relative online sources?
       // TODO: Normalize paths when using `..`
@@ -41,21 +46,18 @@ impl Imports {
       for (psrc, code) in packages {
         let mut module = do_parse_book(&code, &psrc, ParseBook::default())?;
         let parent_dir = psrc.rsplit_once('/').map(|(s, _)| Name::new(s)).unwrap_or(psrc.clone());
-        module.imports.load_imports(Some(parent_dir), loader)?;
+        module.imports.load_imports(Some(parent_dir), loader, diag)?;
         self.pkgs.push((psrc, module));
       }
 
       if sub_imports.is_empty() {
-        let name = src.split('/').last().unwrap();
-
-        if let Entry::Vacant(v) = self.map.entry(Name::new(name)) {
-          v.insert(Name::new(format!("{}/{}", src, name)));
-        }
+        let name = Name::new(src.split('/').last().unwrap());
+        let src = format!("{}/{}", src, name);
+        add_bind(&mut self.map, name, &src, diag);
       } else {
         for sub in sub_imports {
-          if let Entry::Vacant(v) = self.map.entry(sub.clone()) {
-            v.insert(Name::new(format!("{}/{}", src, sub)));
-          }
+          let src = format!("{}/{}", src, sub);
+          add_bind(&mut self.map, sub.clone(), &src, diag);
         }
       }
     }
@@ -64,27 +66,41 @@ impl Imports {
   }
 }
 
+fn add_bind(map: &mut IndexMap<Name, Name>, name: Name, src: &str, diag: &mut Diagnostics) {
+  if let Some(old) = map.insert(name, Name::new(src)) {
+    let warn = format!("The import `{src}` shadows the imported name `{old}`");
+    diag.add_book_warning(warn, WarningType::ImportShadow);
+  }
+}
+
 impl ParseBook {
-  pub fn apply_imports(&mut self) -> Result<(), String> {
-    self.apply_imports_go(None)
+  pub fn apply_imports(&mut self, diag: &mut Diagnostics) -> Result<(), String> {
+    self.apply_imports_go(None, diag)
   }
 
-  fn apply_imports_go(&mut self, main_imports: Option<&IndexMap<Name, Name>>) -> Result<(), String> {
-    self.load_packages(main_imports)?;
-    self.apply_import_binds(main_imports);
+  fn apply_imports_go(
+    &mut self,
+    main_imports: Option<&IndexMap<Name, Name>>,
+    diag: &mut Diagnostics,
+  ) -> Result<(), String> {
+    self.load_packages(main_imports, diag)?;
+    self.apply_import_binds(main_imports, diag);
     Ok(())
   }
 
   /// Consumes the book imported packages,
   /// applying the imports recursively of every nested book.
-  fn load_packages(&mut self, main_imports: Option<&IndexMap<Name, Name>>) -> Result<(), String> {
+  fn load_packages(
+    &mut self,
+    main_imports: Option<&IndexMap<Name, Name>>,
+    diag: &mut Diagnostics,
+  ) -> Result<(), String> {
     for (src, mut package) in std::mem::take(&mut self.imports.pkgs) {
       // Can not be done outside the loop/function because of the borrow checker.
       // Just serves to pass only the import map of the first call to `apply_imports_go`.
       let main_imports = main_imports.unwrap_or(&self.imports.map);
 
-      package.apply_imports_go(Some(main_imports))?;
-
+      package.apply_imports_go(Some(main_imports), diag)?;
       let new_adts = package.apply_adts(&src, main_imports);
       package.apply_defs(&src, main_imports);
 
@@ -111,24 +127,41 @@ impl ParseBook {
   /// Applies a chain of `use bind = src` to every local definition.
   ///
   /// Must be used after `load_packages`
-  fn apply_import_binds(&mut self, main_imports: Option<&IndexMap<Name, Name>>) {
+  fn apply_import_binds(&mut self, main_imports: Option<&IndexMap<Name, Name>>, diag: &mut Diagnostics) {
     // Can not be done outside the function because of the borrow checker.
     // Just serves to pass only the import map of the first call to `apply_imports_go`.
     let main_imports = main_imports.unwrap_or(&self.imports.map);
 
     let mut local_imports: IndexMap<Name, Name> = IndexMap::new();
 
-    // Collect local imports binds surrounded by `__` if not imported by the main book.
+    // Collect local imports binds, surrounded by `__` if not imported by the main book.
     for (bind, src) in self.imports.map.iter().rev() {
+      if self.contains_def(bind) {
+        let warn = format!("The local definition `{bind}` shadows the imported name `{src}`");
+        diag.add_book_warning(warn, WarningType::ImportShadow);
+        continue;
+      }
+
+      if self.ctrs.contains_key(bind) {
+        let warn = format!("The local constructor `{bind}` shadows the imported name `{src}`");
+        diag.add_book_warning(warn, WarningType::ImportShadow);
+        continue;
+      }
+
+      if self.adts.contains_key(bind) {
+        let warn = format!("The local type `{bind}` shadows the imported name `{src}`");
+        diag.add_book_warning(warn, WarningType::ImportShadow);
+        continue;
+      }
+
       let nam =
         if main_imports.values().contains(&src) { src.clone() } else { Name::new(format!("__{}__", src)) };
 
       if let Some(adt) = &self.adts.get(&nam) {
         for (ctr, _) in adt.ctrs.iter().rev() {
-          let src = ctr.rsplit("__").nth(1).unwrap_or(ctr.as_ref());
-          let nam = nam.rsplit("__").nth(1).unwrap_or(nam.as_ref());
+          let ctr_name = ctr.rsplit("__").nth(1).unwrap_or(ctr.as_ref());
 
-          if let Some(a) = src.strip_prefix(nam) {
+          if let Some(a) = ctr_name.strip_prefix(src.as_ref()) {
             let bind = Name::new(format!("{}{}", bind, a));
             local_imports.insert(bind, ctr.clone());
           }
@@ -328,6 +361,7 @@ impl PackageLoader for DefaultLoader {
   fn load(&mut self, name: Name, _sub_names: &[Name]) -> Result<Vec<(Name, String)>, String> {
     if !self.is_loaded(&name) {
       // TODO: Should the local filesystem be searched anyway for each sub_name?
+      // TODO: If the name to load is a folder, and we have sub names, we should load those files instead?
       self.loaded.insert(name.clone());
       let path = self.local_path.parent().unwrap().join(name.as_ref()).with_extension("bend");
       std::fs::read_to_string(path).map_err(|e| e.to_string()).map(|c| vec![(name, c)])
