@@ -88,7 +88,7 @@ pub enum Source {
 pub struct HvmDefinition {
   pub name: Name,
   pub body: hvm::ast::Net,
-  pub builtin: bool,
+  pub source: Source,
 }
 
 /// A pattern matching rule of a definition.

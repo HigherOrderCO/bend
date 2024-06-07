@@ -249,7 +249,9 @@ impl<'a> TermParser<'a> {
     let mut p = hvm::ast::CoreParser::new(&self.input[*self.index()..]);
     let body = p.parse_net()?;
     *self.index() = ini_idx + *p.index();
-    let def = HvmDefinition { name: name.clone(), body, builtin };
+    let end_idx = *self.index();
+    let source = if builtin { Source::Builtin } else { Source::Local(ini_idx..end_idx) };
+    let def = HvmDefinition { name: name.clone(), body, source };
     Ok(def)
   }
 
