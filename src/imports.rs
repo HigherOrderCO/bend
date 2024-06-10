@@ -82,7 +82,7 @@ impl Imports {
 
           for (sub, alias) in names {
             if !book.top_level_names().contains(sub) {
-              let err = format!("Package `{src}` does not contain the top level name `{sub}`");
+              let err = format!("Package '{src}' does not contain the top level name '{sub}'");
               diag.add_book_error(err);
               continue;
             }
@@ -111,7 +111,7 @@ fn add_bind(map: &mut ImportsMap, name: Name, alias: Option<Name>, src: &str, di
 
   if let Some(old) = map.binds.get(&aliased) {
     let old = &map.sources[*old];
-    let warn = format!("The import `{src}` shadows the imported name `{old}`");
+    let warn = format!("The import '{src}' shadows the imported name '{old}'");
     diag.add_book_warning(warn, WarningType::ImportShadow);
   }
 
@@ -188,19 +188,19 @@ impl ParseBook {
     // Collect local imports binds, surrounded by `__` if not imported by the main book.
     for (bind, src) in self.imports.map.iter().rev() {
       if self.contains_def(bind) {
-        let warn = format!("The local definition `{bind}` shadows the imported name `{src}`");
+        let warn = format!("The local definition '{bind}' shadows the imported name '{src}'");
         diag.add_book_warning(warn, WarningType::ImportShadow);
         continue;
       }
 
       if self.ctrs.contains_key(bind) {
-        let warn = format!("The local constructor `{bind}` shadows the imported name `{src}`");
+        let warn = format!("The local constructor '{bind}' shadows the imported name '{src}'");
         diag.add_book_warning(warn, WarningType::ImportShadow);
         continue;
       }
 
       if self.adts.contains_key(bind) {
-        let warn = format!("The local type `{bind}` shadows the imported name `{src}`");
+        let warn = format!("The local type '{bind}' shadows the imported name '{src}'");
         diag.add_book_warning(warn, WarningType::ImportShadow);
         continue;
       }
@@ -351,10 +351,10 @@ impl ParseBook {
   fn add_imported_def(&mut self, def: Definition, diag: &mut Diagnostics) {
     let name = &def.name;
     if self.contains_def(name) {
-      let err = format!("The imported definition `{name}` conflicts with the definition '{name}'.");
+      let err = format!("The imported definition '{name}' conflicts with the definition '{name}'.");
       diag.add_book_error(err);
     } else if self.ctrs.contains_key(name) {
-      let err = format!("The imported definition `{name}` conflicts with the constructor '{name}'.");
+      let err = format!("The imported definition '{name}' conflicts with the constructor '{name}'.");
       diag.add_book_error(err);
     }
 
