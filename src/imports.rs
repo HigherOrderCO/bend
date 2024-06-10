@@ -1,6 +1,6 @@
 use crate::{
   diagnostics::{Diagnostics, WarningType},
-  fun::{load_book::do_parse_book, parser::ParseBook, Adt, Name, Source, Term},
+  fun::{load_book::do_parse_book, parser::ParseBook, Adt, Definition, Name, Source, Term},
   imp::{Expr, Stmt},
 };
 use indexmap::{map::Entry, IndexMap};
@@ -129,7 +129,7 @@ impl ParseBook {
     imp_defs.chain(fun_defs).chain(adts).chain(ctrs)
   }
 
-  pub fn apply_imports(&mut self, diag: &mut Diagnostics) -> Result<(), String> {
+  pub fn apply_imports(&mut self, diag: &mut Diagnostics) -> Result<(), Diagnostics> {
     self.apply_imports_go(None, diag)
   }
 
@@ -137,7 +137,7 @@ impl ParseBook {
     &mut self,
     main_imports: Option<&ImportsMap>,
     diag: &mut Diagnostics,
-  ) -> Result<(), String> {
+  ) -> Result<(), Diagnostics> {
     self.load_packages(main_imports, diag)?;
     self.apply_import_binds(main_imports, diag);
     Ok(())
@@ -149,7 +149,9 @@ impl ParseBook {
     &mut self,
     main_imports: Option<&ImportsMap>,
     diag: &mut Diagnostics,
-  ) -> Result<(), String> {
+  ) -> Result<(), Diagnostics> {
+    diag.start_pass();
+
     for (src, mut package) in std::mem::take(&mut self.imports.pkgs) {
       // Can not be done outside the loop/function because of the borrow checker.
       // Just serves to pass only the import map of the first call to `apply_imports_go`.
@@ -162,21 +164,15 @@ impl ParseBook {
       let book = package.to_fun()?;
 
       for (name, adt) in new_adts {
-        self
-          .add_imported_adt(name, adt)
-          .expect("Package src should be unique, impossible to have name conflicts");
+        self.add_imported_adt(name, adt)?;
       }
 
       for def in book.defs.into_values() {
-        if self.contains_def(&def.name) || self.ctrs.contains_key(&def.name) {
-          unreachable!("Package src should be unique, impossible to have name conflicts");
-        }
-
-        self.fun_defs.insert(def.name.clone(), def);
+        self.add_imported_def(def, diag);
       }
     }
 
-    Ok(())
+    diag.fatal(())
   }
 
   /// Applies a chain of `use bind = src` to every local definition.
@@ -331,27 +327,36 @@ impl ParseBook {
 
   fn add_imported_adt(&mut self, nam: Name, adt: Adt) -> Result<(), String> {
     if self.adts.get(&nam).is_some() {
-      let err = format!("The imported datatype '{nam}' conflicts with the datatype '{nam}'.");
-      return Err(err);
+      return Err(format!("The datatype '{nam}' conflicts with an imported datatype '{nam}'."));
     } else {
       for ctr in adt.ctrs.keys() {
         if self.contains_def(ctr) {
-          let err = format!("The imported constructor '{ctr}' conflicts with the definition '{ctr}'.");
-          return Err(err);
+          return Err(format!("The constructor '{ctr}' conflicts with an imported definition '{ctr}'."));
         }
         match self.ctrs.entry(ctr.clone()) {
           Entry::Vacant(e) => _ = e.insert(nam.clone()),
           Entry::Occupied(e) => {
             let ctr = e.key();
-            let err = format!("The imported constructor '{ctr}' conflicts with the constructor '{ctr}'.");
-            return Err(err);
+            return Err(format!("The constructor '{ctr}' conflicts with an imported constructor '{ctr}'."));
           }
         }
       }
-      self.adts.insert(nam, adt);
+      self.adts.insert(nam.clone(), adt);
+    }
+    Ok(())
+  }
+
+  fn add_imported_def(&mut self, def: Definition, diag: &mut Diagnostics) {
+    let name = &def.name;
+    if self.contains_def(name) {
+      let err = format!("The definition `{name}` conflicts with an imported definition '{name}'.");
+      diag.add_book_error(err);
+    } else if self.ctrs.contains_key(name) {
+      let err = format!("The definition `{name}` conflicts with an imported constructor '{name}'.");
+      diag.add_book_error(err);
     }
 
-    Ok(())
+    self.fun_defs.insert(name.clone(), def);
   }
 }
 

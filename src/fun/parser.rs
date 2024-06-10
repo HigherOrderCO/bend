@@ -42,6 +42,7 @@ impl ParseBook {
   pub fn contains_def(&self, name: &Name) -> bool {
     self.fun_defs.contains_key(name) || self.imp_defs.contains_key(name)
   }
+
   pub fn contains_builtin_def(&self, name: &Name) -> Option<bool> {
     self.fun_defs.get(name).map(|d| d.is_builtin()).or(self.imp_defs.get(name).map(|(_, s)| s.is_builtin()))
   }
@@ -902,6 +903,9 @@ impl<'a> TermParser<'a> {
       return self.with_ctx(Err(msg), span);
     } else {
       for ctr in adt.ctrs.keys() {
+        if let Some(builtin) = book.contains_builtin_def(ctr) {
+          return Err(TermParser::redefinition_of_function_msg(builtin, ctr));
+        }
         match book.ctrs.entry(ctr.clone()) {
           indexmap::map::Entry::Vacant(e) => _ = e.insert(nam.clone()),
           indexmap::map::Entry::Occupied(e) => {
