@@ -164,7 +164,7 @@ impl ParseBook {
       let book = package.to_fun()?;
 
       for (name, adt) in new_adts {
-        self.add_imported_adt(name, adt)?;
+        self.add_imported_adt(name, adt, diag);
       }
 
       for def in book.defs.into_values() {
@@ -325,25 +325,27 @@ impl ParseBook {
     }
   }
 
-  fn add_imported_adt(&mut self, nam: Name, adt: Adt) -> Result<(), String> {
+  fn add_imported_adt(&mut self, nam: Name, adt: Adt, diag: &mut Diagnostics) {
     if self.adts.get(&nam).is_some() {
-      return Err(format!("The imported datatype '{nam}' conflicts with the datatype '{nam}'."));
+      let err = format!("The imported datatype '{nam}' conflicts with the datatype '{nam}'.");
+      diag.add_book_error(err);
     } else {
       for ctr in adt.ctrs.keys() {
         if self.contains_def(ctr) {
-          return Err(format!("The imported constructor '{ctr}' conflicts with the definition '{ctr}'."));
+          let err = format!("The imported constructor '{ctr}' conflicts with the definition '{ctr}'.");
+          diag.add_book_error(err);
         }
         match self.ctrs.entry(ctr.clone()) {
           Entry::Vacant(e) => _ = e.insert(nam.clone()),
           Entry::Occupied(e) => {
             let ctr = e.key();
-            return Err(format!("The imported constructor '{ctr}' conflicts with the constructor '{ctr}'."));
+            let err = format!("The imported constructor '{ctr}' conflicts with the constructor '{ctr}'.");
+            diag.add_book_error(err);
           }
         }
       }
       self.adts.insert(nam.clone(), adt);
     }
-    Ok(())
   }
 
   fn add_imported_def(&mut self, def: Definition, diag: &mut Diagnostics) {
