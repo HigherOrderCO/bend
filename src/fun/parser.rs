@@ -175,6 +175,7 @@ impl<'a> TermParser<'a> {
 
       // Import declaration
       if self.try_parse_keyword("use") {
+        self.skip_trivia();
         let (import, sub_imports) = self.parse_import()?;
         book.imports.add_import(import, sub_imports);
         indent = self.advance_newlines()?;
@@ -257,8 +258,11 @@ impl<'a> TermParser<'a> {
 
   fn parse_import(&mut self) -> Result<(Name, ImportType), String> {
     // use package
-    self.skip_trivia();
-    let import = self.labelled(|p| p.parse_restricted_name("Top-level"), "import name")?;
+    let (import, alias) = self.parse_name_maybe_alias("Import")?;
+
+    if let Some(alias) = alias {
+      return Ok((import, ImportType::Simple(Some(alias))));
+    }
 
     if self.try_consume("{") {
       if self.try_consume("*") {
@@ -266,13 +270,13 @@ impl<'a> TermParser<'a> {
         return Ok((import, ImportType::Glob));
       }
 
-      let sub = self.list_like(|p| p.parse_bend_name(), "", "}", ",", false, 0)?;
-      let imp_type = if sub.is_empty() { ImportType::Simple } else { ImportType::List(sub) };
+      let sub = self.list_like(|p| p.parse_name_maybe_alias("Name"), "", "}", ",", false, 0)?;
+      let imp_type = if sub.is_empty() { ImportType::Simple(None) } else { ImportType::List(sub) };
 
       return Ok((import, imp_type));
     }
 
-    Ok((import, ImportType::Simple))
+    Ok((import, ImportType::Simple(None)))
   }
   fn parse_rule(&mut self) -> ParseResult<(Name, Rule)> {
     // (name pat*) = term
@@ -1083,6 +1087,18 @@ pub trait ParserCommons<'a>: Parser<'a> {
 
   fn parse_bend_name(&mut self) -> ParseResult<Name> {
     self.parse_restricted_name("Variable")
+  }
+
+  fn parse_name_maybe_alias(&mut self, label: &str) -> ParseResult<(Name, Option<Name>)> {
+    let name = self.parse_restricted_name(label)?;
+
+    if self.try_consume("as") {
+      self.skip_trivia();
+      let alias = self.parse_restricted_name("Alias")?;
+      Ok((name, Some(alias)))
+    } else {
+      Ok((name, None))
+    }
   }
 
   /// Consumes exactly the text without skipping.

@@ -13,7 +13,7 @@ pub struct Imports {
   names: Vec<(Name, ImportType)>,
 
   /// Map from bound names to source package.
-  map: IndexMap<Name, Name>,
+  map: ImportsMap,
 
   /// Imported packages to be loaded in the program.
   /// When loaded, the book contents are drained to the parent book,
@@ -21,10 +21,22 @@ pub struct Imports {
   pkgs: IndexMap<Name, ParseBook>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct ImportsMap {
+  binds: IndexMap<Name, usize>,
+  sources: Vec<Name>,
+}
+
+impl ImportsMap {
+  fn iter(&self) -> impl DoubleEndedIterator<Item = (&Name, &Name)> {
+    self.binds.iter().map(|(n, u)| (n, &self.sources[*u]))
+  }
+}
+
 #[derive(Debug, Clone)]
 pub enum ImportType {
-  Simple,
-  List(Vec<Name>),
+  Simple(Option<Name>),
+  List(Vec<(Name, Option<Name>)>),
   Glob,
 }
 
@@ -60,15 +72,15 @@ impl Imports {
       }
 
       match imp_type {
-        ImportType::Simple => {
+        ImportType::Simple(alias) => {
           let name = Name::new(src.split('/').last().unwrap());
           let src = format!("{}/{}", src, name);
-          add_bind(&mut self.map, name, &src, diag);
+          add_bind(&mut self.map, name, alias.clone(), &src, diag);
         }
         ImportType::List(names) => {
           let book = self.pkgs.get(&src).unwrap();
 
-          for sub in names {
+          for (sub, alias) in names {
             if !book.top_level_names().contains(sub) {
               let err = format!("Package `{src}` does not contain the top level name `{sub}`");
               diag.add_book_error(err);
@@ -76,7 +88,7 @@ impl Imports {
             }
 
             let src = format!("{}/{}", src, sub);
-            add_bind(&mut self.map, sub.clone(), &src, diag);
+            add_bind(&mut self.map, sub.clone(), alias.clone(), &src, diag);
           }
         }
         ImportType::Glob => {
@@ -84,7 +96,7 @@ impl Imports {
 
           for sub in book.top_level_names() {
             let src = format!("{}/{}", src, sub);
-            add_bind(&mut self.map, sub.clone(), &src, diag);
+            add_bind(&mut self.map, sub.clone(), None, &src, diag);
           }
         }
       }
@@ -94,11 +106,17 @@ impl Imports {
   }
 }
 
-fn add_bind(map: &mut IndexMap<Name, Name>, name: Name, src: &str, diag: &mut Diagnostics) {
-  if let Some(old) = map.insert(name, Name::new(src)) {
+fn add_bind(map: &mut ImportsMap, name: Name, alias: Option<Name>, src: &str, diag: &mut Diagnostics) {
+  let aliased = alias.unwrap_or(name);
+
+  if let Some(old) = map.binds.get(&aliased) {
+    let old = &map.sources[*old];
     let warn = format!("The import `{src}` shadows the imported name `{old}`");
     diag.add_book_warning(warn, WarningType::ImportShadow);
   }
+
+  map.binds.insert(aliased, map.sources.len());
+  map.sources.push(Name::new(src))
 }
 
 impl ParseBook {
@@ -117,7 +135,7 @@ impl ParseBook {
 
   fn apply_imports_go(
     &mut self,
-    main_imports: Option<&IndexMap<Name, Name>>,
+    main_imports: Option<&ImportsMap>,
     diag: &mut Diagnostics,
   ) -> Result<(), String> {
     self.load_packages(main_imports, diag)?;
@@ -129,7 +147,7 @@ impl ParseBook {
   /// applying the imports recursively of every nested book.
   fn load_packages(
     &mut self,
-    main_imports: Option<&IndexMap<Name, Name>>,
+    main_imports: Option<&ImportsMap>,
     diag: &mut Diagnostics,
   ) -> Result<(), String> {
     for (src, mut package) in std::mem::take(&mut self.imports.pkgs) {
@@ -164,7 +182,7 @@ impl ParseBook {
   /// Applies a chain of `use bind = src` to every local definition.
   ///
   /// Must be used after `load_packages`
-  fn apply_import_binds(&mut self, main_imports: Option<&IndexMap<Name, Name>>, diag: &mut Diagnostics) {
+  fn apply_import_binds(&mut self, main_imports: Option<&ImportsMap>, diag: &mut Diagnostics) {
     // Can not be done outside the function because of the borrow checker.
     // Just serves to pass only the import map of the first call to `apply_imports_go`.
     let main_imports = main_imports.unwrap_or(&self.imports.map);
@@ -192,7 +210,7 @@ impl ParseBook {
       }
 
       let nam =
-        if main_imports.values().contains(&src) { src.clone() } else { Name::new(format!("__{}__", src)) };
+        if main_imports.sources.contains(src) { src.clone() } else { Name::new(format!("__{}__", src)) };
 
       if let Some(adt) = &self.adts.get(&nam) {
         for (ctr, _) in adt.ctrs.iter().rev() {
@@ -221,7 +239,7 @@ impl ParseBook {
 
   /// Consumes the book adts, applying the necessary naming transformations
   /// adding `use ctr = ctr_src` chains to every local definition.
-  fn apply_adts(&mut self, src: &Name, main_imp: &IndexMap<Name, Name>) -> IndexMap<Name, Adt> {
+  fn apply_adts(&mut self, src: &Name, main_imp: &ImportsMap) -> IndexMap<Name, Adt> {
     let adts = std::mem::take(&mut self.adts);
     let mut new_adts = IndexMap::new();
     let mut ctrs_map = IndexMap::new();
@@ -232,13 +250,13 @@ impl ParseBook {
           adt.source = Source::Imported;
           name = Name::new(format!("{}/{}", src, name));
 
-          let mangle_name = !main_imp.values().contains(&name);
+          let mangle_name = !main_imp.sources.contains(&name);
           let mut mangle_adt_name = mangle_name;
 
           for (ctr, f) in std::mem::take(&mut adt.ctrs) {
             let mut ctr_name = Name::new(format!("{}/{}", src, ctr));
 
-            let mangle_ctr = mangle_name && !main_imp.values().contains(&ctr_name);
+            let mangle_ctr = mangle_name && !main_imp.sources.contains(&ctr_name);
 
             if mangle_ctr {
               mangle_adt_name = true;
@@ -279,7 +297,7 @@ impl ParseBook {
 
   /// Apply the necessary naming transformations to the book definitions,
   /// adding `use def = def_src` chains to every local definition.
-  fn apply_defs(&mut self, src: &Name, main_imp: &IndexMap<Name, Name>) {
+  fn apply_defs(&mut self, src: &Name, main_imp: &ImportsMap) {
     let mut def_map: IndexMap<_, _> = IndexMap::new();
 
     // Rename the definitions to their source name
@@ -341,14 +359,14 @@ fn update_name(
   def_name: &mut Name,
   def_source: Source,
   src: &Name,
-  main_imp: &IndexMap<Name, Name>,
+  main_imp: &ImportsMap,
   def_map: &mut IndexMap<Name, Name>,
 ) {
   match def_source {
     Source::Local(..) => {
       let mut new_name = Name::new(format!("{}/{}", src, def_name));
 
-      if !main_imp.values().contains(&new_name) {
+      if !main_imp.sources.contains(&new_name) {
         new_name = Name::new(format!("__{}__", new_name));
       }
 
