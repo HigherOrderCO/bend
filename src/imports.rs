@@ -327,17 +327,17 @@ impl ParseBook {
 
   fn add_imported_adt(&mut self, nam: Name, adt: Adt) -> Result<(), String> {
     if self.adts.get(&nam).is_some() {
-      return Err(format!("The datatype '{nam}' conflicts with an imported datatype '{nam}'."));
+      return Err(format!("The imported datatype '{nam}' conflicts with the datatype '{nam}'."));
     } else {
       for ctr in adt.ctrs.keys() {
         if self.contains_def(ctr) {
-          return Err(format!("The constructor '{ctr}' conflicts with an imported definition '{ctr}'."));
+          return Err(format!("The imported constructor '{ctr}' conflicts with the definition '{ctr}'."));
         }
         match self.ctrs.entry(ctr.clone()) {
           Entry::Vacant(e) => _ = e.insert(nam.clone()),
           Entry::Occupied(e) => {
             let ctr = e.key();
-            return Err(format!("The constructor '{ctr}' conflicts with an imported constructor '{ctr}'."));
+            return Err(format!("The imported constructor '{ctr}' conflicts with the constructor '{ctr}'."));
           }
         }
       }
@@ -349,10 +349,10 @@ impl ParseBook {
   fn add_imported_def(&mut self, def: Definition, diag: &mut Diagnostics) {
     let name = &def.name;
     if self.contains_def(name) {
-      let err = format!("The definition `{name}` conflicts with an imported definition '{name}'.");
+      let err = format!("The imported definition `{name}` conflicts with the definition '{name}'.");
       diag.add_book_error(err);
     } else if self.ctrs.contains_key(name) {
-      let err = format!("The definition `{name}` conflicts with an imported constructor '{name}'.");
+      let err = format!("The imported definition `{name}` conflicts with the constructor '{name}'.");
       diag.add_book_error(err);
     }
 
