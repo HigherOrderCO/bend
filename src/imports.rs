@@ -99,8 +99,8 @@ impl Packages {
 
     while let Some(idx) = self.load_queue.pop_front() {
       let psrc = &self.get_book(idx).source;
-      let parent_dir = psrc.rsplit_once('/').map_or_else(|| psrc.clone(), |(s, _)| Name::new(s));
-      self.load_imports_go(idx, Some(parent_dir), loader)?;
+      let parent_dir = psrc.rsplit_once('/').map(|(s, _)| Name::new(s));
+      self.load_imports_go(idx, parent_dir, loader)?;
     }
 
     for idx in 0..self.books.len() {
