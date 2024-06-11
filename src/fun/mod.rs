@@ -1060,7 +1060,9 @@ impl Name {
   }
 
   pub fn def_name_from_generated(&self) -> Name {
-    if let Some((nam, _)) = self.split_once("__") {
+    if let Some(nam) = self.strip_prefix("__") {
+      Name::new(nam)
+    } else if let Some((nam, _)) = self.split_once("__") {
       Name::new(nam)
     } else {
       self.clone()

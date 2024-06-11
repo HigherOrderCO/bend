@@ -36,6 +36,9 @@ pub struct ParseBook {
 
   /// Imported packages to be loaded in the program
   pub imports: Imports,
+
+  /// Source of the book
+  pub source: Name,
 }
 
 impl ParseBook {

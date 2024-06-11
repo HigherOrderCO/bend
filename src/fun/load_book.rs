@@ -1,6 +1,6 @@
 use super::{
   parser::{ParseBook, TermParser},
-  Book,
+  Book, Name,
 };
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
@@ -23,24 +23,16 @@ pub fn load_file_to_book(
 pub fn load_to_book<T: Display>(
   origin: T,
   code: &str,
-  mut package_loader: impl PackageLoader,
+  package_loader: impl PackageLoader,
   diag: DiagnosticsConfig,
 ) -> Result<Book, Diagnostics> {
   let builtins = ParseBook::builtins();
-  let mut book = do_parse_book(code, origin, builtins)?;
-
-  let diag = &mut Diagnostics::new(diag);
-  book.imports.load_imports(None, &mut package_loader, diag)?;
-  book.apply_imports(diag)?;
-  eprint!("{}", diag);
-
-  let mut book = book.to_fun()?;
-  book.desugar_ctr_use();
-
-  Ok(book)
+  let book = do_parse_book(code, origin, builtins)?;
+  book.load_imports(package_loader, diag)
 }
 
-pub fn do_parse_book<T: Display>(code: &str, origin: T, book: ParseBook) -> Result<ParseBook, String> {
+pub fn do_parse_book<T: Display>(code: &str, origin: T, mut book: ParseBook) -> Result<ParseBook, String> {
+  book.source = Name::new(format!("{origin}"));
   TermParser::new(code).parse_book(book, false).map_err(|e| format!("In {} :\n{}", origin, e))
 }
 
