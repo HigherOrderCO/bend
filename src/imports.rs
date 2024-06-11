@@ -50,16 +50,14 @@ impl ImportsMap {
     self.binds.iter().map(|(n, u)| (n, &self.sources[*u]))
   }
 
-  fn add_bind(&mut self, name: Name, alias: Option<Name>, src: &str, diag: &mut Diagnostics) {
-    let aliased = alias.unwrap_or(name);
-
-    if let Some(old) = self.binds.get(&aliased) {
+  fn add_bind(&mut self, bind: Name, src: &str, diag: &mut Diagnostics) {
+    if let Some(old) = self.binds.get(&bind) {
       let old = &self.sources[*old];
       let warn = format!("The import '{src}' shadows the imported name '{old}'");
       diag.add_book_warning(warn, WarningType::ImportShadow);
     }
 
-    self.binds.insert(aliased, self.sources.len());
+    self.binds.insert(bind, self.sources.len());
     self.sources.push(Name::new(src));
   }
 }
@@ -149,11 +147,26 @@ impl Packages {
     for (src, imp_type) in binds {
       match imp_type {
         ImportType::Simple(alias) => {
-          let name = Name::new(src.split('/').last().unwrap());
-          let src = format!("{}/{}", src, name);
+          let bound_book = self.books.get(&src).unwrap();
+          let names: HashSet<_> = bound_book.top_level_names().cloned().collect();
+
+          let pkg_name = Name::new(src.split('/').last().unwrap());
+          let aliased = alias.as_ref().unwrap_or(&pkg_name);
 
           let book = self.get_book_mut(idx);
-          book.imports.map.add_bind(name, alias, &src, diag);
+
+          for name in &names {
+            if name != &pkg_name {
+              let src = format!("{}/{}", src, name);
+              let bind = Name::new(format!("{aliased}/{name}"));
+              book.imports.map.add_bind(bind, &src, diag);
+            }
+          }
+
+          if names.contains(&pkg_name) {
+            let src = format!("{}/{}", src, pkg_name);
+            book.imports.map.add_bind(aliased.clone(), &src, diag);
+          }
         }
         ImportType::List(names) => {
           let bound_book = self.books.get(&src).unwrap();
@@ -162,7 +175,6 @@ impl Packages {
             if !bound_book.top_level_names().contains(&sub) {
               let err = format!("Package '{src}' does not contain the top level name '{sub}'");
               diag.add_book_error(err);
-              continue;
             }
           }
 
@@ -170,18 +182,19 @@ impl Packages {
 
           for (sub, alias) in names {
             let src = format!("{}/{}", src, sub);
-            book.imports.map.add_bind(sub, alias, &src, diag);
+            let aliased = alias.unwrap_or(sub);
+            book.imports.map.add_bind(aliased, &src, diag);
           }
         }
         ImportType::Glob => {
           let bound_book = self.books.get(&src).unwrap();
-          let names = bound_book.top_level_names().cloned().collect_vec();
+          let names: HashSet<_> = bound_book.top_level_names().cloned().collect();
 
           let book = self.get_book_mut(idx);
 
           for sub in names {
             let src = format!("{}/{}", src, sub);
-            book.imports.map.add_bind(sub, None, &src, diag);
+            book.imports.map.add_bind(sub, &src, diag);
           }
         }
       }
@@ -261,7 +274,7 @@ impl ParseBook {
   fn apply_import_binds(
     &mut self,
     main_imports: Option<&ImportsMap>,
-    diag: &mut Diagnostics,
+    _diag: &mut Diagnostics,
     pkgs: &Packages,
   ) {
     // Can not be done outside the function because of the borrow checker.
@@ -272,21 +285,10 @@ impl ParseBook {
 
     // Collect local imports binds, starting with `__` if not imported by the main book.
     'outer: for (bind, src) in self.imports.map.iter().rev() {
-      if self.contains_def(bind) {
-        let warn = format!("The local definition '{bind}' shadows the imported name '{src}'");
-        diag.add_book_warning(warn, WarningType::ImportShadow);
-        continue;
-      }
-
-      if self.ctrs.contains_key(bind) {
-        let warn = format!("The local constructor '{bind}' shadows the imported name '{src}'");
-        diag.add_book_warning(warn, WarningType::ImportShadow);
-        continue;
-      }
-
-      if self.adts.contains_key(bind) {
-        let warn = format!("The local type '{bind}' shadows the imported name '{src}'");
-        diag.add_book_warning(warn, WarningType::ImportShadow);
+      if self.contains_def(bind) | self.ctrs.contains_key(bind) | self.adts.contains_key(bind) {
+        // TODO: Here we should show warnings for shadowing of imported names by local def/ctr/adt
+        // It can be done, but when importing with `ImportType::Simple` files in the same folder,
+        // it gives a false positive warning
         continue;
       }
 
