@@ -5,6 +5,8 @@ use bend::{
     load_book::do_parse_book_default, net_to_term::net_to_term, term_to_net::Labels, Book, Ctx, Name, Term,
   },
   hvm::hvm_book_show_pretty,
+  imports::DefaultLoader,
+  load_to_book,
   net::hvm_to_net::hvm_to_net,
   run_book, AdtEncoding, CompileOpts, RunOpts,
 };
@@ -69,7 +71,7 @@ fn run_golden_test_dir_multiple(test_name: &str, run: &[&RunFn]) {
     test_name.rsplit_once(':').unwrap().1
   ));
 
-  let walker = WalkDir::new(&root).sort_by_file_name().max_depth(2).into_iter().filter_entry(|e| {
+  let walker = WalkDir::new(&root).sort_by_file_name().max_depth(1).into_iter().filter_entry(|e| {
     let path = e.path();
     path == root || path.is_dir() || (path.is_file() && path.extension().is_some_and(|x| x == "bend"))
   });
@@ -181,6 +183,30 @@ fn run_file() {
           run_book_simple(book.clone(), run_opts.clone(), compile_opts, diagnostics_cfg, None)?;
         res.push_str(&format!("{adt_encoding}:\n{diags}{term}\n\n"));
       }
+      Ok(res)
+    })],
+  )
+}
+
+#[test]
+fn import_system() {
+  run_golden_test_dir_multiple(
+    function_name!(),
+    &[(&|code, path| {
+      let _guard = RUN_MUTEX.lock().unwrap();
+      let diagnostics_cfg = DiagnosticsConfig {
+        unused_definition: Severity::Allow,
+        ..DiagnosticsConfig::new(Severity::Error, true)
+      };
+
+      let book = load_to_book(path.display(), code, DefaultLoader::new(path.to_path_buf()), diagnostics_cfg)?;
+      let run_opts = RunOpts::default();
+
+      let mut res = String::new();
+
+      let compile_opts = CompileOpts::default();
+      let (term, _, diags) = run_book_simple(book, run_opts, compile_opts, diagnostics_cfg, None)?;
+      res.push_str(&format!("{diags}{term}\n\n"));
       Ok(res)
     })],
   )

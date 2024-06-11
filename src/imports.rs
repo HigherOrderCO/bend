@@ -541,6 +541,12 @@ pub struct DefaultLoader {
   pub loaded: HashSet<Name>,
 }
 
+impl DefaultLoader {
+  pub fn new(local_path: PathBuf) -> Self {
+    Self { local_path, loaded: HashSet::new() }
+  }
+}
+
 impl PackageLoader for DefaultLoader {
   fn load(&mut self, name: Name, _import_type: &ImportType, pkgs: &mut Sources) -> Result<Vec<Name>, String> {
     if !self.is_loaded(&name) {
