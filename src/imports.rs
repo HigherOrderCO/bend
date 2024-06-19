@@ -8,7 +8,7 @@ use itertools::Itertools;
 use std::{
   collections::{HashSet, VecDeque},
   fmt::Display,
-  path::{Path, PathBuf},
+  path::{Component, Path, PathBuf},
 };
 
 #[derive(Debug, Clone, Default)]
@@ -163,7 +163,9 @@ impl Packages {
     for import in names {
       if import.relative {
         if let Some(ref dir) = dir {
-          import.path = Name::new(format!("{}/{}", dir, import.path));
+          let path = format!("{}/{}", dir, import.path);
+          let normalized = normalize_path(&PathBuf::from(path));
+          import.path = Name::new(normalized.to_string_lossy());
         }
       }
 
@@ -610,6 +612,34 @@ impl Stmt {
   }
 }
 
+// Taken from 'cargo/util/paths.rs'
+fn normalize_path(path: &Path) -> PathBuf {
+  let mut components = path.components().peekable();
+  let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
+    components.next();
+    PathBuf::from(c.as_os_str())
+  } else {
+    PathBuf::new()
+  };
+
+  for component in components {
+    match component {
+      Component::Prefix(..) => unreachable!(),
+      Component::RootDir => {
+        ret.push(component.as_os_str());
+      }
+      Component::CurDir => {}
+      Component::ParentDir => {
+        ret.pop();
+      }
+      Component::Normal(c) => {
+        ret.push(c);
+      }
+    }
+  }
+  ret
+}
+
 type Sources = IndexMap<Name, String>;
 
 pub trait PackageLoader {
@@ -701,7 +731,7 @@ impl DefaultLoader {
   }
 }
 
-pub const PATH: &[&str] = &[".bend"];
+pub const PATH: &[&str] = &[""];
 
 impl PackageLoader for DefaultLoader {
   fn load(&mut self, import: &mut Import) -> Result<Sources, String> {
