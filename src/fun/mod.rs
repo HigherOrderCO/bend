@@ -8,7 +8,6 @@ use interner::global::{GlobalPool, GlobalString};
 use itertools::Itertools;
 use std::{
   borrow::Cow,
-  collections::HashMap,
   hash::Hash,
   ops::{Deref, Range},
 };
@@ -809,8 +808,8 @@ impl Term {
 
   /// Collects all the free variables that a term has
   /// and the number of times each var is used
-  pub fn free_vars(&self) -> HashMap<Name, u64> {
-    fn go_term(term: &Term, free_vars: &mut HashMap<Name, u64>) {
+  pub fn free_vars(&self) -> IndexMap<Name, u64> {
+    fn go_term(term: &Term, free_vars: &mut IndexMap<Name, u64>) {
       maybe_grow(|| {
         if let Term::Var { nam } = term {
           *free_vars.entry(nam.clone()).or_default() += 1;
@@ -821,7 +820,7 @@ impl Term {
           go_term(child, &mut new_scope);
 
           for nam in binds.flatten() {
-            new_scope.remove(nam);
+            new_scope.shift_remove(nam);
           }
 
           free_vars.extend(new_scope);

@@ -412,7 +412,7 @@ pub fn lift_match_vars(match_term: &mut Term) -> &mut Term {
   for (binds, body) in arms {
     let mut arm_free_vars = body.free_vars();
     for bind in binds {
-      arm_free_vars.remove(&bind);
+      arm_free_vars.shift_remove(&bind);
     }
     free_vars.push(arm_free_vars.into_keys().collect());
   }

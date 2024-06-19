@@ -57,11 +57,11 @@ impl Term {
         // Gather the free variables
         // They will be implicitly captured by the new function
         let mut free_vars = step.free_vars();
-        free_vars.remove(&Name::new(RECURSIVE_KW));
+        free_vars.shift_remove(&Name::new(RECURSIVE_KW));
         free_vars.extend(base.free_vars());
         free_vars.extend(cond.free_vars());
         for bnd in bnd.iter().flatten() {
-          free_vars.remove(bnd);
+          free_vars.shift_remove(bnd);
         }
         let free_vars = free_vars.into_keys().collect::<Vec<_>>();
 
