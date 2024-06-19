@@ -1,5 +1,5 @@
-use lib/a/b{C}
-use lib/a{b/C}
+from lib/a/b import C
+from lib/a   import b/C
 
 lib/a/b/C = *
 

@@ -7,36 +7,77 @@ use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 use std::{
   collections::{HashSet, VecDeque},
-  path::PathBuf,
+  fmt::Display,
+  path::{Path, PathBuf},
 };
 
 #[derive(Debug, Clone, Default)]
-pub struct Imports {
+pub struct ImportCtx {
   /// Imports declared in the program source.
-  names: Vec<(Name, ImportType)>,
+  imports: Vec<Import>,
 
   /// Map from bound names to source package.
   map: ImportsMap,
-
-  /// Imported packages names.
-  pkgs: Vec<Name>,
 }
 
-impl Imports {
-  pub fn add_import(&mut self, import: Name, import_type: ImportType) {
-    self.names.push((import, import_type));
+impl ImportCtx {
+  pub fn add_import(&mut self, import: Import) {
+    self.imports.push(import);
   }
 
-  pub fn to_names(self) -> Vec<(Name, ImportType)> {
-    self.names
+  pub fn to_imports(self) -> Vec<Import> {
+    self.imports
+  }
+
+  pub fn sources(&self) -> Vec<&Name> {
+    let mut names = Vec::new();
+    for imps in &self.imports {
+      match &imps.src {
+        BoundSource::None => todo!(),
+        BoundSource::File(f) => names.push(f),
+        BoundSource::Folder(v) => names.extend(v),
+      }
+    }
+    names
+  }
+}
+
+#[derive(Debug, Clone)]
+pub struct Import {
+  path: Name,
+  imp_type: ImportType,
+  relative: bool,
+  src: BoundSource,
+}
+
+#[derive(Debug, Clone)]
+pub enum BoundSource {
+  None,
+  File(Name),
+  Folder(Vec<Name>),
+}
+
+impl Import {
+  pub fn new(path: Name, imp_type: ImportType, relative: bool) -> Self {
+    Self { path, imp_type, relative, src: BoundSource::None }
   }
 }
 
 #[derive(Debug, Clone)]
 pub enum ImportType {
-  Simple(Option<Name>),
+  Simple(Name, Option<Name>),
   List(Vec<(Name, Option<Name>)>),
   Glob,
+}
+
+impl Display for ImportType {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      ImportType::Simple(n, _) => write!(f, "{n}"),
+      ImportType::List(l) => write!(f, "({})", l.iter().map(|(n, _)| n).join(", ")),
+      ImportType::Glob => write!(f, "*"),
+    }
+  }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -116,59 +157,52 @@ impl Packages {
     dir: Option<Name>,
     loader: &mut impl PackageLoader,
   ) -> Result<(), Diagnostics> {
-    let names = self.get_book(idx).imports.names.clone();
+    let names = &mut self.get_book_mut(idx).import_ctx.imports;
+    let mut sources = IndexMap::new();
 
-    for (src, imp_type) in names {
-      // TODO: Would this be correct when handling non-local imports? Do we want relative online sources?
-      // TODO: Normalize paths when using `..`
-      let src = dir.as_ref().map_or(src.clone(), |dir| Name::new(format!("{}/{}", dir, src)));
-
-      let mut sources = IndexMap::new();
-      let packages = loader.load(src.clone(), &imp_type, &mut sources)?;
-
-      self.get_book_mut(idx).imports.pkgs.extend(packages);
-
-      for (psrc, code) in sources {
-        let module = do_parse_book(&code, &psrc, ParseBook::default())?;
-
-        self.load_queue.push_back(self.books.len());
-        self.books.insert(psrc, module);
+    for import in names {
+      if import.relative {
+        if let Some(ref dir) = dir {
+          import.path = Name::new(format!("{}/{}", dir, import.path));
+        }
       }
+
+      let loaded = loader.load(import)?;
+      sources.extend(loaded);
     }
+
+    for (psrc, code) in sources {
+      let module = do_parse_book(&code, &psrc, ParseBook::default())?;
+
+      self.load_queue.push_back(self.books.len());
+      self.books.insert(psrc, module);
+    }
+
     Ok(())
   }
 
   fn load_binds(&mut self, idx: usize, diag: &mut Diagnostics) {
     let book = self.get_book(idx);
-    let pkgs = book.imports.pkgs.iter();
-    let names = book.imports.names.iter();
-    let binds = pkgs.zip(names).map(|(src, (_, imp))| (src.clone(), imp.clone())).collect_vec();
+    let imports = book.import_ctx.imports.clone();
 
-    for (src, imp_type) in binds {
-      match imp_type {
-        ImportType::Simple(alias) => {
+    for Import { imp_type, src: pkgs, .. } in imports {
+      match (pkgs, imp_type) {
+        (BoundSource::File(src), ImportType::Simple(nam, alias)) => {
           let bound_book = self.books.get(&src).unwrap();
-          let names: HashSet<_> = bound_book.top_level_names().cloned().collect();
 
-          let pkg_name = Name::new(src.split('/').last().unwrap());
-          let aliased = alias.as_ref().unwrap_or(&pkg_name);
+          if !bound_book.top_level_names().contains(&nam) {
+            let err = format!("Package '{src}' does not contain the top level name '{nam}'");
+            diag.add_book_error(err);
+          }
 
           let book = self.get_book_mut(idx);
 
-          for name in &names {
-            if name != &pkg_name {
-              let src = format!("{}/{}", src, name);
-              let bind = Name::new(format!("{aliased}/{name}"));
-              book.imports.map.add_bind(bind, &src, diag);
-            }
-          }
-
-          if names.contains(&pkg_name) {
-            let src = format!("{}/{}", src, pkg_name);
-            book.imports.map.add_bind(aliased.clone(), &src, diag);
-          }
+          let src = format!("{}/{}", src, nam);
+          let aliased = alias.unwrap_or(nam);
+          book.import_ctx.map.add_bind(aliased, &src, diag);
         }
-        ImportType::List(names) => {
+
+        (BoundSource::File(src), ImportType::List(names)) => {
           let bound_book = self.books.get(&src).unwrap();
 
           for (sub, _) in &names {
@@ -183,10 +217,11 @@ impl Packages {
           for (sub, alias) in names {
             let src = format!("{}/{}", src, sub);
             let aliased = alias.unwrap_or(sub);
-            book.imports.map.add_bind(aliased, &src, diag);
+            book.import_ctx.map.add_bind(aliased, &src, diag);
           }
         }
-        ImportType::Glob => {
+
+        (BoundSource::File(src), ImportType::Glob) => {
           let bound_book = self.books.get(&src).unwrap();
           let names: HashSet<_> = bound_book.top_level_names().cloned().collect();
 
@@ -194,10 +229,52 @@ impl Packages {
 
           for sub in names {
             let src = format!("{}/{}", src, sub);
-            book.imports.map.add_bind(sub, &src, diag);
+            book.import_ctx.map.add_bind(sub, &src, diag);
           }
         }
+
+        (BoundSource::Folder(mut src), ImportType::Simple(nam, alias)) => {
+          let src = src.pop().unwrap();
+          self.add_book_bind(idx, src, nam, alias, diag);
+        }
+
+        (BoundSource::Folder(pkgs), ImportType::List(names)) => {
+          for (src, (nam, alias)) in pkgs.into_iter().zip_eq(names) {
+            self.add_book_bind(idx, src, nam, alias, diag);
+          }
+        }
+
+        (BoundSource::Folder(pkgs), ImportType::Glob) => {
+          for src in pkgs {
+            let nam = Name::new(src.split('/').last().unwrap());
+            self.add_book_bind(idx, src, nam, None, diag);
+          }
+        }
+
+        (BoundSource::None, _) => unreachable!(),
       }
+    }
+  }
+
+  fn add_book_bind(&mut self, idx: usize, src: Name, nam: Name, alias: Option<Name>, diag: &mut Diagnostics) {
+    let bound_book = self.books.get(&src).unwrap();
+    let names: HashSet<_> = bound_book.top_level_names().cloned().collect();
+
+    let aliased = alias.as_ref().unwrap_or(&nam);
+
+    let book = self.get_book_mut(idx);
+
+    for name in &names {
+      if name != &nam {
+        let src = format!("{}/{}", src, name);
+        let bind = Name::new(format!("{aliased}/{name}"));
+        book.import_ctx.map.add_bind(bind, &src, diag);
+      }
+    }
+
+    if names.contains(&nam) {
+      let src = format!("{}/{}", src, nam);
+      book.import_ctx.map.add_bind(aliased.clone(), &src, diag);
     }
   }
 }
@@ -241,12 +318,14 @@ impl ParseBook {
   ) -> Result<(), Diagnostics> {
     diag.start_pass();
 
-    for src in self.imports.pkgs.clone() {
+    let sources = self.import_ctx.sources().into_iter().cloned().collect_vec();
+
+    for src in sources {
       let Some(mut package) = pkgs.books.swap_remove(&src) else { continue };
 
       // Can not be done outside the loop/function because of the borrow checker.
       // Just serves to pass only the import map of the first call to `apply_imports_go`.
-      let main_imports = main_imports.unwrap_or(&self.imports.map);
+      let main_imports = main_imports.unwrap_or(&self.import_ctx.map);
 
       package.apply_imports(Some(main_imports), diag, pkgs)?;
       let new_adts = package.apply_adts(&src, main_imports);
@@ -279,12 +358,12 @@ impl ParseBook {
   ) {
     // Can not be done outside the function because of the borrow checker.
     // Just serves to pass only the import map of the first call to `apply_imports_go`.
-    let main_imports = main_imports.unwrap_or(&self.imports.map);
+    let main_imports = main_imports.unwrap_or(&self.import_ctx.map);
 
     let mut local_imports: IndexMap<Name, Name> = IndexMap::new();
 
     // Collect local imports binds, starting with `__` if not imported by the main book.
-    'outer: for (bind, src) in self.imports.map.iter().rev() {
+    'outer: for (bind, src) in self.import_ctx.map.iter().rev() {
       if self.contains_def(bind) | self.ctrs.contains_key(bind) | self.adts.contains_key(bind) {
         // TODO: Here we should show warnings for shadowing of imported names by local def/ctr/adt
         // It can be done, but when importing with `ImportType::Simple` files in the same folder,
@@ -302,7 +381,7 @@ impl ParseBook {
         continue;
       }
 
-      for pkg in &self.imports.pkgs {
+      for pkg in self.import_ctx.sources() {
         if let Some(book) = pkgs.loaded_adts.get(pkg) {
           if let Some(ctrs) = book.get(&nam) {
             for ctr in ctrs.iter().rev() {
@@ -534,33 +613,121 @@ impl Stmt {
 type Sources = IndexMap<Name, String>;
 
 pub trait PackageLoader {
-  fn load(&mut self, name: Name, import_type: &ImportType, pkgs: &mut Sources) -> Result<Vec<Name>, String>;
+  fn load(&mut self, import: &mut Import) -> Result<Sources, String>;
   fn is_loaded(&self, name: &Name) -> bool;
 }
 
 pub struct DefaultLoader {
-  pub local_path: PathBuf,
-  pub loaded: HashSet<Name>,
+  local_path: PathBuf,
+  loaded: HashSet<Name>,
 }
 
 impl DefaultLoader {
-  pub fn new(local_path: PathBuf) -> Self {
+  pub fn new(local_path: &Path) -> Self {
+    let local_path = local_path.parent().unwrap().to_path_buf();
     Self { local_path, loaded: HashSet::new() }
+  }
+
+  fn read_file(&mut self, path: &Path, file: Name, src: &mut Sources) -> Option<Name> {
+    if !self.is_loaded(&file) {
+      self.loaded.insert(file.clone());
+
+      let path = path.with_extension("bend");
+      let code = std::fs::read_to_string(path).ok()?;
+      src.insert(file.clone(), code);
+    }
+    Some(file)
+  }
+
+  fn read_file_in_folder(
+    &mut self,
+    full_path: &Path,
+    folder: &str,
+    file_name: &str,
+    src: &mut Sources,
+  ) -> Option<Name> {
+    let file_path = Name::new(format!("{}/{}", folder, file_name));
+    let full_path = full_path.join(file_name);
+
+    self.read_file(&full_path, file_path, src)
+  }
+
+  fn read_path(
+    &mut self,
+    base_path: &Path,
+    path: &Name,
+    imp_type: &ImportType,
+  ) -> Option<(BoundSource, Sources)> {
+    let full_path = base_path.join(path.as_ref());
+    let mut src = IndexMap::new();
+
+    if full_path.with_extension("bend").is_file() {
+      if let Some(nam) = self.read_file(&full_path, path.clone(), &mut src) {
+        return Some((BoundSource::File(nam), src));
+      }
+    }
+
+    if full_path.is_dir() || path.is_empty() {
+      let mut names = Vec::new();
+
+      match imp_type {
+        ImportType::Simple(file, _) => {
+          let name = self.read_file_in_folder(&full_path, path, file, &mut src)?;
+          names.push(name);
+        }
+        ImportType::List(list) => {
+          for (file, _) in list {
+            let name = self.read_file_in_folder(&full_path, path, file, &mut src)?;
+            names.push(name);
+          }
+        }
+        ImportType::Glob => {
+          for entry in full_path.read_dir().unwrap().flatten() {
+            let file = PathBuf::from(&entry.file_name());
+
+            if let Some("bend") = file.extension().and_then(|f| f.to_str()) {
+              let file = file.file_stem().unwrap().to_string_lossy();
+              let name = self.read_file_in_folder(&full_path, path, &file, &mut src)?;
+              names.push(name);
+            }
+          }
+        }
+      }
+
+      return Some((BoundSource::Folder(names), src));
+    }
+
+    None
   }
 }
 
+pub const PATH: &[&str] = &[".bend"];
+
 impl PackageLoader for DefaultLoader {
-  fn load(&mut self, name: Name, _import_type: &ImportType, pkgs: &mut Sources) -> Result<Vec<Name>, String> {
-    if !self.is_loaded(&name) {
-      // TODO: Should the local filesystem be searched anyway for each sub_name?
-      // TODO: If the name to load is a folder, and we have sub names, we should load those files instead?
-      self.loaded.insert(name.clone());
-      let path = self.local_path.parent().unwrap().join(name.as_ref()).with_extension("bend");
-      let code = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-      pkgs.insert(name.clone(), code);
+  fn load(&mut self, import: &mut Import) -> Result<Sources, String> {
+    let mut sources = Sources::new();
+
+    let Import { path, imp_type, relative, src } = import;
+
+    let folders = if *relative {
+      vec![self.local_path.clone()]
+    } else {
+      PATH.iter().map(|p| self.local_path.join(p)).collect()
+    };
+
+    for base in folders {
+      let Some((names, new_pkgs)) = self.read_path(&base, path, imp_type) else { continue };
+
+      *src = names;
+      sources.extend(new_pkgs);
+      break;
     }
 
-    Ok(vec![name])
+    if let BoundSource::None = src {
+      return Err(format!("Failed to import '{}' from '{}'", imp_type, path).to_string());
+    }
+
+    Ok(sources)
   }
 
   fn is_loaded(&self, name: &Name) -> bool {

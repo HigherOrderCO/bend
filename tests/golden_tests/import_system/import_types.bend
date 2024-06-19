@@ -1,5 +1,5 @@
-use lib/types{Bool, MyTree}
-use lib/bool_xor
+from lib/types import (Bool, MyTree)
+from lib       import bool_xor
 
 def tree_xor(tree):
   fold tree:

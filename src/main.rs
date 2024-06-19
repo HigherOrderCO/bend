@@ -8,7 +8,6 @@ use bend::{
 };
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use std::{
-  collections::HashSet,
   path::{Path, PathBuf},
   process::ExitCode,
 };
@@ -254,7 +253,7 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
   let entrypoint = cli.entrypoint.take();
 
   let load_book = |path: &Path, diag: DiagnosticsConfig| -> Result<Book, Diagnostics> {
-    let package_loader = DefaultLoader { local_path: path.to_path_buf(), loaded: HashSet::new() };
+    let package_loader = DefaultLoader::new(path);
     let mut book = load_file_to_book(path, package_loader, diag)?;
     book.entrypoint = entrypoint.map(Name::new);
 

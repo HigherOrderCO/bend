@@ -6,11 +6,12 @@ use crate::{
     Name, Num, Op, Pattern, Rule, Source, Tag, Term, STRINGS,
   },
   imp::{parser::PyParser, Enum, Variant},
-  imports::{ImportType, Imports},
+  imports::{Import, ImportCtx, ImportType},
   maybe_grow,
 };
 use highlight_error::highlight_error;
 use indexmap::IndexMap;
+use itertools::Itertools;
 use TSPL::Parser;
 
 type FunDefinition = super::Definition;
@@ -35,7 +36,7 @@ pub struct ParseBook {
   pub ctrs: Constructors,
 
   /// Imported packages to be loaded in the program
-  pub imports: Imports,
+  pub import_ctx: ImportCtx,
 
   /// Source of the book
   pub source: Name,
@@ -178,10 +179,21 @@ impl<'a> TermParser<'a> {
       }
 
       // Import declaration
-      if self.try_parse_keyword("use") {
+      if self.try_parse_keyword("from") {
         self.skip_trivia();
-        let (import, sub_imports) = self.parse_import()?;
-        book.imports.add_import(import, sub_imports);
+        let import = self.parse_from_import()?;
+        book.import_ctx.add_import(import);
+        indent = self.advance_newlines()?;
+        last_rule = None;
+        continue;
+      }
+
+      if self.try_parse_keyword("import") {
+        self.skip_trivia();
+        let imports = self.parse_import()?;
+        for imp in imports {
+          book.import_ctx.add_import(imp);
+        }
         indent = self.advance_newlines()?;
         last_rule = None;
         continue;
@@ -260,28 +272,52 @@ impl<'a> TermParser<'a> {
     Ok(def)
   }
 
-  fn parse_import(&mut self) -> Result<(Name, ImportType), String> {
-    // use package
+  fn parse_from_import(&mut self) -> Result<Import, String> {
+    // from path import package
+    // from path import (a, b)
+    // from path import *
+    let path = self.parse_restricted_name("Path")?;
+    self.consume("import")?;
+
+    let relative = path.starts_with("./") | path.starts_with("../");
+
+    if self.try_consume("*") {
+      return Ok(Import::new(path, ImportType::Glob, relative));
+    }
+
+    if self.try_consume("(") {
+      let sub = self.list_like(|p| p.parse_name_maybe_alias("Name"), "", ")", ",", false, 1)?;
+      return Ok(Import::new(path, ImportType::List(sub), relative));
+    }
+
     let (import, alias) = self.parse_name_maybe_alias("Import")?;
-
-    if let Some(alias) = alias {
-      return Ok((import, ImportType::Simple(Some(alias))));
-    }
-
-    if self.try_consume("{") {
-      if self.try_consume("*") {
-        self.consume("}")?;
-        return Ok((import, ImportType::Glob));
-      }
-
-      let sub = self.list_like(|p| p.parse_name_maybe_alias("Name"), "", "}", ",", false, 0)?;
-      let imp_type = if sub.is_empty() { ImportType::Simple(None) } else { ImportType::List(sub) };
-
-      return Ok((import, imp_type));
-    }
-
-    Ok((import, ImportType::Simple(None)))
+    Ok(Import::new(path, ImportType::Simple(import, alias), relative))
   }
+
+  fn parse_import(&mut self) -> Result<Vec<Import>, String> {
+    // import path
+    // import (path/a, path/b)
+
+    let new_import = |import: Name, alias: Option<Name>, relative: bool| -> Import {
+      let (path, import) = match import.rsplit_once('/') {
+        Some((start, end)) => (Name::new(start), Name::new(end)),
+        None => (Name::default(), import),
+      };
+
+      Import::new(path, ImportType::Simple(import, alias), relative)
+    };
+
+    if self.try_consume("(") {
+      let list = self.list_like(|p| p.parse_import_name("Name"), "", ")", ",", false, 1)?;
+      let imports = list.into_iter().map(|(a, b, c)| new_import(a, b, c)).collect_vec();
+      return Ok(imports);
+    }
+
+    let (import, alias, relative) = self.parse_import_name("Import")?;
+    let import = new_import(import, alias, relative);
+    Ok(vec![import])
+  }
+
   fn parse_rule(&mut self) -> ParseResult<(Name, Rule)> {
     // (name pat*) = term
     // name pat* = term
@@ -1106,6 +1142,12 @@ pub trait ParserCommons<'a>: Parser<'a> {
     } else {
       Ok((name, None))
     }
+  }
+
+  fn parse_import_name(&mut self, label: &str) -> Result<(Name, Option<Name>, bool), String> {
+    let (import, alias) = self.parse_name_maybe_alias(label)?;
+    let relative = import.starts_with("./") | import.starts_with("../");
+    Ok((import, alias, relative))
   }
 
   /// Consumes exactly the text without skipping.

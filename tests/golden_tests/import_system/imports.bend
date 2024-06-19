@@ -1,5 +1,5 @@
-use lib/nums{one, two}
-use lib/defs{sum}
+from lib/nums import (one, two)
+from lib/defs import sum
 
 def main():
   return sum(one, two)

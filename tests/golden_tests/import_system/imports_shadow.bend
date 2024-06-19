@@ -1,5 +1,5 @@
-use lib/folder/myFun
-use lib/myFun
+from lib/folder import myFun
+from lib        import myFun
 
 def main():
   return myFun

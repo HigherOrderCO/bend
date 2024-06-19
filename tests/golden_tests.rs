@@ -199,7 +199,7 @@ fn import_system() {
         ..DiagnosticsConfig::new(Severity::Error, true)
       };
 
-      let book = load_to_book(path.display(), code, DefaultLoader::new(path.to_path_buf()), diagnostics_cfg)?;
+      let book = load_to_book(path.display(), code, DefaultLoader::new(path), diagnostics_cfg)?;
       let run_opts = RunOpts::default();
 
       let mut res = String::new();
