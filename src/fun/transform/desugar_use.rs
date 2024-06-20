@@ -22,6 +22,7 @@ impl Book {
     }
   }
 
+  /// Inline copies of the declared bind in `Fold`, `Mat` and `Open` inside `use` expressions.
   pub fn desugar_ctr_use(&mut self) {
     for def in self.defs.values_mut() {
       for rule in def.rules.iter_mut() {

@@ -1,7 +1,7 @@
 use super::{ImportsMap, PackageLoader};
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
-  fun::{parser::ParseBook, Adt, Book, Definition, Name, Rule, Source, Term},
+  fun::{parser::ParseBook, Adt, Book, Definition, HvmDefinition, Name, Rule, Source, Term},
   imp::{Expr, Stmt},
   imports::packages::Packages,
 };
@@ -9,6 +9,19 @@ use indexmap::{map::Entry, IndexMap};
 use itertools::Itertools;
 
 impl ParseBook {
+  /// Loads and applies imports recursively to a ParseBook,
+  /// transforming definitions and ADTs to a canonical name,
+  /// and adding `use` binds so that names are accessible by their alias.
+  ///
+  /// # Details
+  ///
+  /// The process involves:
+  ///
+  /// 1. Loading imports recursively using the provided `loader`.
+  /// 2. Transforming definitions and ADTs with naming transformations.
+  /// 3. Adding binds for aliases and old names in their respective definitions.
+  /// 4. Converting the ParseBook into its functional form.
+  /// 5. Perform any necessary post-processing.
   pub fn load_imports(
     self,
     mut loader: impl PackageLoader,
@@ -22,10 +35,15 @@ impl ParseBook {
     eprint!("{}", diag);
 
     let mut book = book.to_fun()?;
+
+    // Process terms that contains constructors names and can't be updated by `desugar_use`.
     book.desugar_ctr_use();
+
     Ok(book)
   }
 
+  /// Loads the imported books recursively into the importing book,
+  /// then apply imported names or aliases binds to its definitions.
   fn apply_imports(
     &mut self,
     main_imports: Option<&ImportsMap>,
@@ -56,21 +74,27 @@ impl ParseBook {
       // Just serves to pass only the import map of the first call to `apply_imports_go`.
       let main_imports = main_imports.unwrap_or(&self.import_ctx.map);
 
-      package.apply_imports(Some(main_imports), diag, pkgs)?;
-      let new_adts = package.apply_adts(&src, main_imports);
+      // Rename ADTs and defs, applying binds from old names to new names
+      package.apply_adts(&src, main_imports);
       package.apply_defs(&src, main_imports);
 
-      let book = package.to_fun()?;
+      package.apply_imports(Some(main_imports), diag, pkgs)?; // TODO: Should this be after the apply_adts/defs functions?
 
-      for (name, adt) in new_adts {
+      let Book { defs, hvm_defs, adts, .. } = package.to_fun()?;
+
+      // Add the ADTs to the importing book,
+      // saving the constructors names to be used when applying ADTs binds.
+      for (name, adt) in adts {
         let adts = pkgs.loaded_adts.entry(src.clone()).or_default();
         adts.insert(name.clone(), adt.ctrs.keys().cloned().collect_vec());
         self.add_imported_adt(name, adt, diag);
       }
 
-      for def in book.defs.into_values() {
+      for def in defs.into_values() {
         self.add_imported_def(def, diag);
       }
+
+      // TODO: Need to add hvm_defs too
     }
 
     diag.fatal(())
@@ -87,7 +111,7 @@ impl ParseBook {
     let mut local_imports: IndexMap<Name, Name> = IndexMap::new();
 
     // Collect local imports binds, starting with `__` if not imported by the main book.
-    'outer: for (bind, src) in self.import_ctx.map.iter().rev() {
+    'outer: for (bind, src) in self.import_ctx.map.binds.iter().rev() {
       if self.contains_def(bind) | self.ctrs.contains_key(bind) | self.adts.contains_key(bind) {
         // TODO: Here we should show warnings for shadowing of imported names by local def/ctr/adt
         // It can be done, but when importing with `ImportType::Simple` files in the same folder,
@@ -95,8 +119,7 @@ impl ParseBook {
         continue;
       }
 
-      let nam =
-        if main_imports.sources.contains(src) { src.clone() } else { Name::new(format!("__{}", src)) };
+      let nam = if main_imports.contains_source(src) { src.clone() } else { Name::new(format!("__{}", src)) };
 
       if let Some(adt) = self.adts.get(&nam) {
         for (ctr, _) in adt.ctrs.iter().rev() {
@@ -131,9 +154,9 @@ impl ParseBook {
     }
   }
 
-  /// Consumes the book adts, applying the necessary naming transformations
+  /// Applying the necessary naming transformations to the book ADTs,
   /// adding `use ctr = ctr_src` chains to every local definition.
-  fn apply_adts(&mut self, src: &Name, main_imp: &ImportsMap) -> IndexMap<Name, Adt> {
+  fn apply_adts(&mut self, src: &Name, main_imp: &ImportsMap) {
     let adts = std::mem::take(&mut self.adts);
     let mut new_adts = IndexMap::new();
     let mut ctrs_map = IndexMap::new();
@@ -144,13 +167,13 @@ impl ParseBook {
           adt.source = Source::Imported;
           name = Name::new(format!("{}/{}", src, name));
 
-          let mangle_name = !main_imp.sources.contains(&name);
+          let mangle_name = !main_imp.contains_source(&name);
           let mut mangle_adt_name = mangle_name;
 
           for (ctr, f) in std::mem::take(&mut adt.ctrs) {
             let mut ctr_name = Name::new(format!("{}/{}", src, ctr));
 
-            let mangle_ctr = mangle_name && !main_imp.sources.contains(&ctr_name);
+            let mangle_ctr = mangle_name && !main_imp.contains_source(&ctr_name);
 
             if mangle_ctr {
               mangle_adt_name = true;
@@ -187,7 +210,7 @@ impl ParseBook {
       def.body = std::mem::take(&mut def.body).fold_uses(ctrs_map.iter().rev());
     }
 
-    new_adts
+    self.adts = new_adts;
   }
 
   /// Apply the necessary naming transformations to the book definitions,
@@ -222,6 +245,18 @@ impl ParseBook {
         *source = Source::Imported;
       }
     }
+  }
+}
+
+/// Helper functions
+impl ParseBook {
+  pub fn top_level_names(&self) -> impl Iterator<Item = &Name> {
+    let imp_defs = self.imp_defs.keys();
+    let fun_defs = self.fun_defs.keys();
+    let adts = self.adts.keys();
+    let ctrs = self.ctrs.keys();
+
+    imp_defs.chain(fun_defs).chain(adts).chain(ctrs)
   }
 
   fn add_imported_adt(&mut self, nam: Name, adt: Adt, diag: &mut Diagnostics) {
@@ -259,15 +294,6 @@ impl ParseBook {
 
     self.fun_defs.insert(name.clone(), def);
   }
-
-  pub fn top_level_names(&self) -> impl Iterator<Item = &Name> {
-    let imp_defs = self.imp_defs.keys();
-    let fun_defs = self.fun_defs.keys();
-    let adts = self.adts.keys();
-    let ctrs = self.ctrs.keys();
-
-    imp_defs.chain(fun_defs).chain(adts).chain(ctrs)
-  }
 }
 
 fn rename_ctr_patterns(rule: &mut Rule, map: &IndexMap<Name, Name>) {
@@ -298,7 +324,7 @@ fn update_name(
     Source::Local(..) => {
       let mut new_name = Name::new(format!("{}/{}", src, def_name));
 
-      if !main_imp.sources.contains(&new_name) {
+      if !main_imp.contains_source(&new_name) {
         new_name = Name::new(format!("__{}", new_name));
       }
 

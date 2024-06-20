@@ -3,7 +3,7 @@ use crate::{
   diagnostics::Diagnostics,
   fun::{load_book::do_parse_book, parser::ParseBook, Name},
 };
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
 use std::{
   collections::{HashSet, VecDeque},
@@ -12,9 +12,12 @@ use std::{
 
 #[derive(Default)]
 pub struct Packages {
+  /// Map from source name to parsed book.
   pub books: IndexMap<Name, ParseBook>,
+  /// Already loaded ADTs information to be used when applying ADT binds.
   pub loaded_adts: IndexMap<Name, IndexMap<Name, Vec<Name>>>,
-  pub load_queue: VecDeque<usize>,
+  /// Queue of books indexes that still needs to load its imports
+  load_queue: VecDeque<usize>,
 }
 
 impl Packages {
@@ -26,14 +29,8 @@ impl Packages {
     }
   }
 
-  fn get_book(&self, idx: usize) -> &ParseBook {
-    self.books.get_index(idx).unwrap().1
-  }
-
-  fn get_book_mut(&mut self, idx: usize) -> &mut ParseBook {
-    self.books.get_index_mut(idx).unwrap().1
-  }
-
+  /// Loads each import statement recursively into a Source -> ParseBook map.
+  /// Inserts into the ImportsMap of each book all the imported names.
   pub fn load_imports(
     &mut self,
     loader: &mut impl PackageLoader,
@@ -89,6 +86,8 @@ impl Packages {
     Ok(())
   }
 
+  /// Maps the `ImportType` of each import to the top level names it relates,
+  /// checks if it is valid, and adds to the book ImportMap.
   fn load_binds(&mut self, idx: usize, diag: &mut Diagnostics) {
     let book = self.get_book(idx);
     let imports = book.import_ctx.imports.clone();
@@ -164,9 +163,11 @@ impl Packages {
     }
   }
 
+  /// Adds all top level names of the book to the ImportMap in the form `alias/name`.
+  /// If one of the names is equal to the name of the book, adds as `alias` instead.
   fn add_book_bind(&mut self, idx: usize, src: Name, nam: Name, alias: Option<Name>, diag: &mut Diagnostics) {
     let bound_book = self.books.get(&src).unwrap();
-    let names: HashSet<_> = bound_book.top_level_names().cloned().collect();
+    let names: IndexSet<_> = bound_book.top_level_names().cloned().collect();
 
     let aliased = alias.as_ref().unwrap_or(&nam);
 
@@ -184,6 +185,14 @@ impl Packages {
       let src = format!("{}/{}", src, nam);
       book.import_ctx.map.add_bind(aliased.clone(), &src, diag);
     }
+  }
+
+  fn get_book(&self, idx: usize) -> &ParseBook {
+    self.books.get_index(idx).unwrap().1
+  }
+
+  fn get_book_mut(&mut self, idx: usize) -> &mut ParseBook {
+    self.books.get_index_mut(idx).unwrap().1
   }
 }
 

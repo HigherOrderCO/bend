@@ -83,23 +83,20 @@ pub enum BoundSource {
 
 #[derive(Debug, Clone, Default)]
 struct ImportsMap {
-  binds: IndexMap<Name, usize>,
-  sources: Vec<Name>,
+  binds: IndexMap<Name, Name>,
 }
 
 impl ImportsMap {
-  fn iter(&self) -> impl DoubleEndedIterator<Item = (&Name, &Name)> {
-    self.binds.iter().map(|(n, u)| (n, &self.sources[*u]))
+  pub fn contains_source(&self, s: &Name) -> bool {
+    self.binds.values().contains(s)
   }
 
   fn add_bind(&mut self, bind: Name, src: &str, diag: &mut Diagnostics) {
     if let Some(old) = self.binds.get(&bind) {
-      let old = &self.sources[*old];
       let warn = format!("The import '{src}' shadows the imported name '{old}'");
       diag.add_book_warning(warn, WarningType::ImportShadow);
     }
 
-    self.binds.insert(bind, self.sources.len());
-    self.sources.push(Name::new(src));
+    self.binds.insert(bind, Name::new(src));
   }
 }
