@@ -3,12 +3,12 @@ use crate::fun::{
   self,
   builtins::{LCONS, LNIL},
   parser::ParseBook,
-  Book, Name, Source,
+  Book, Name,
 };
 
 impl ParseBook {
   pub fn to_fun(mut self) -> Result<Book, String> {
-    for (name, (mut def, source)) in std::mem::take(&mut self.imp_defs) {
+    for (name, mut def) in std::mem::take(&mut self.imp_defs) {
       def.order_kwargs(&self)?;
       def.gen_map_get();
 
@@ -16,7 +16,7 @@ impl ParseBook {
         panic!("Def names collision should be checked at parse time")
       }
 
-      self.fun_defs.insert(name, def.to_fun(source)?);
+      self.fun_defs.insert(name, def.to_fun()?);
     }
 
     let ParseBook { fun_defs: defs, hvm_defs, adts, ctrs, import_ctx, .. } = self;
@@ -25,7 +25,7 @@ impl ParseBook {
 }
 
 impl Definition {
-  pub fn to_fun(self, source: Source) -> Result<fun::Definition, String> {
+  pub fn to_fun(self) -> Result<fun::Definition, String> {
     let body = self.body.into_fun().map_err(|e| format!("In function '{}': {}", self.name, e))?;
     let body = match body {
       StmtToFun::Return(term) => term,
@@ -37,7 +37,7 @@ impl Definition {
     let rule =
       fun::Rule { pats: self.params.into_iter().map(|param| fun::Pattern::Var(Some(param))).collect(), body };
 
-    let def = fun::Definition::new(self.name, vec![rule], source);
+    let def = fun::Definition::new(self.name, vec![rule], self.source);
     Ok(def)
   }
 }

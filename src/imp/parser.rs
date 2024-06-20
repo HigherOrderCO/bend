@@ -987,7 +987,8 @@ impl<'a> PyParser<'a> {
     let (body, nxt_indent) = self.parse_statement(&mut indent)?;
     indent.exit_level();
 
-    let def = Definition { name, params, body };
+    // Temporary source, should be overwritten later
+    let def = Definition { name, params, body, source: crate::fun::Source::Generated };
     Ok((def, nxt_indent))
   }
 

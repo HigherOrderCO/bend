@@ -1114,6 +1114,10 @@ impl Source {
   pub fn is_builtin(&self) -> bool {
     matches!(self, Source::Builtin)
   }
+
+  pub fn is_local(&self) -> bool {
+    matches!(self, Source::Local(..))
+  }
 }
 
 #[test]

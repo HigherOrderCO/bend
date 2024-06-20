@@ -1,8 +1,8 @@
-use super::{ImportsMap, PackageLoader};
+use super::{BindMap, ImportsMap, PackageLoader};
 use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
   fun::{parser::ParseBook, Adt, Book, Definition, HvmDefinition, Name, Rule, Source, Term},
-  imp::{Expr, Stmt},
+  imp::{self, Expr, Stmt},
   imports::packages::Packages,
 };
 use indexmap::{map::Entry, IndexMap};
@@ -90,11 +90,15 @@ impl ParseBook {
         self.add_imported_adt(name, adt, diag);
       }
 
+      // The names on the indexmap are the original ones, so we ignore them
       for def in defs.into_values() {
         self.add_imported_def(def, diag);
       }
 
-      // TODO: Need to add hvm_defs too
+      // The names on the indexmap are the original ones, so we ignore them
+      for def in hvm_defs.into_values() {
+        self.add_imported_hvm_def(def, diag);
+      }
     }
 
     diag.fatal(())
@@ -108,7 +112,7 @@ impl ParseBook {
     // Just serves to pass only the import map of the first call to `apply_imports_go`.
     let main_imports = main_imports.unwrap_or(&self.import_ctx.map);
 
-    let mut local_imports: IndexMap<Name, Name> = IndexMap::new();
+    let mut local_imports = BindMap::new();
 
     // Collect local imports binds, starting with `__` if not imported by the main book.
     'outer: for (bind, src) in self.import_ctx.map.binds.iter().rev() {
@@ -121,93 +125,75 @@ impl ParseBook {
 
       let nam = if main_imports.contains_source(src) { src.clone() } else { Name::new(format!("__{}", src)) };
 
-      if let Some(adt) = self.adts.get(&nam) {
-        for (ctr, _) in adt.ctrs.iter().rev() {
-          add_bind_to_map(&mut local_imports, bind, src, ctr);
-        }
-        continue;
-      }
-
+      // Checks if the bind is an loaded ADT name,
+      // If so, add the constructors binds as `bind/ctr` instead.
+      // As ADTs names are not used in the syntax, we don't bind their names.
       for pkg in self.import_ctx.sources() {
         if let Some(book) = pkgs.loaded_adts.get(pkg) {
           if let Some(ctrs) = book.get(&nam) {
             for ctr in ctrs.iter().rev() {
-              add_bind_to_map(&mut local_imports, bind, src, ctr);
+              let full_ctr_name = ctr.split("__").nth(1).unwrap_or(ctr.as_ref());
+              let ctr_name = full_ctr_name.strip_prefix(src.as_ref()).unwrap();
+              let bind = Name::new(format!("{}{}", bind, ctr_name));
+              local_imports.insert(bind, ctr.clone());
             }
             continue 'outer;
           }
         }
       }
 
+      // Not a constructor, so just insert the bind.
       local_imports.insert(bind.clone(), nam);
     }
 
-    for def in self.fun_defs.values_mut().filter(|d| matches!(d.source, Source::Local(..))) {
-      for rule in &mut def.rules {
-        rename_ctr_patterns(rule, &local_imports);
-        rule.body = std::mem::take(&mut rule.body).fold_uses(local_imports.iter());
-      }
-    }
-
-    for (def, _) in self.imp_defs.values_mut().filter(|(_, source)| matches!(source, Source::Local(..))) {
-      def.body = std::mem::take(&mut def.body).fold_uses(local_imports.iter());
+    for (_, def) in self.local_defs_mut() {
+      def.apply_binds(true, &local_imports);
     }
   }
 
   /// Applying the necessary naming transformations to the book ADTs,
   /// adding `use ctr = ctr_src` chains to every local definition.
-  fn apply_adts(&mut self, src: &Name, main_imp: &ImportsMap) {
+  fn apply_adts(&mut self, src: &Name, main_imports: &ImportsMap) {
     let adts = std::mem::take(&mut self.adts);
     let mut new_adts = IndexMap::new();
     let mut ctrs_map = IndexMap::new();
 
+    // Rename the ADTs and constructors to their canonical name,
+    // starting with `__` if not imported by the main book.
     for (mut name, mut adt) in adts {
-      match adt.source {
-        Source::Local(..) => {
-          adt.source = Source::Imported;
-          name = Name::new(format!("{}/{}", src, name));
+      if adt.source.is_local() {
+        adt.source = Source::Imported;
+        name = Name::new(format!("{}/{}", src, name));
 
-          let mangle_name = !main_imp.contains_source(&name);
-          let mut mangle_adt_name = mangle_name;
+        let mangle_name = !main_imports.contains_source(&name);
+        let mut mangle_adt_name = mangle_name;
 
-          for (ctr, f) in std::mem::take(&mut adt.ctrs) {
-            let mut ctr_name = Name::new(format!("{}/{}", src, ctr));
+        for (ctr, f) in std::mem::take(&mut adt.ctrs) {
+          let mut ctr_name = Name::new(format!("{}/{}", src, ctr));
 
-            let mangle_ctr = mangle_name && !main_imp.contains_source(&ctr_name);
+          let mangle_ctr = mangle_name && !main_imports.contains_source(&ctr_name);
 
-            if mangle_ctr {
-              mangle_adt_name = true;
-              ctr_name = Name::new(format!("__{}", ctr_name));
-            }
-
-            ctrs_map.insert(ctr, ctr_name.clone());
-            adt.ctrs.insert(ctr_name, f);
+          if mangle_ctr {
+            mangle_adt_name = true;
+            ctr_name = Name::new(format!("__{}", ctr_name));
           }
 
-          if mangle_adt_name {
-            name = Name::new(format!("__{}", name));
-          }
+          ctrs_map.insert(ctr, ctr_name.clone());
+          adt.ctrs.insert(ctr_name, f);
         }
 
-        Source::Imported => {}
-
-        Source::Builtin | Source::Generated => {
-          unreachable!("No builtin or generated adt should be present at this step")
+        if mangle_adt_name {
+          name = Name::new(format!("__{}", name));
         }
       }
 
       new_adts.insert(name.clone(), adt);
     }
 
-    for def in self.fun_defs.values_mut().filter(|d| matches!(d.source, Source::Local(..))) {
-      for rule in &mut def.rules {
-        rename_ctr_patterns(rule, &ctrs_map);
-        rule.body = std::mem::take(&mut rule.body).fold_uses(ctrs_map.iter().rev());
-      }
-    }
-
-    for (def, _) in self.imp_defs.values_mut().filter(|(_, source)| matches!(source, Source::Local(..))) {
-      def.body = std::mem::take(&mut def.body).fold_uses(ctrs_map.iter().rev());
+    // Applies the binds for the new constructor names for every definition.
+    // As ADTs names are not used in the syntax, we don't bind their new names.
+    for (_, def) in self.local_defs_mut() {
+      def.apply_binds(true, &ctrs_map);
     }
 
     self.adts = new_adts;
@@ -215,35 +201,19 @@ impl ParseBook {
 
   /// Apply the necessary naming transformations to the book definitions,
   /// adding `use def = def_src` chains to every local definition.
-  fn apply_defs(&mut self, src: &Name, main_imp: &ImportsMap) {
-    let mut def_map: IndexMap<_, _> = IndexMap::new();
+  fn apply_defs(&mut self, src: &Name, main_imports: &ImportsMap) {
+    let mut canonical_map: IndexMap<_, _> = IndexMap::new();
 
-    // Rename the definitions to their source name
+    // Rename the definitions to their canonical name
     // Starting with `__` if not imported by the main book.
-    for def in self.fun_defs.values_mut() {
-      update_name(&mut def.name, def.source.clone(), src, main_imp, &mut def_map);
+    for (_, def) in self.local_defs_mut() {
+      def.canonicalize_name(src, main_imports, &mut canonical_map);
     }
 
-    for (def, source) in self.imp_defs.values_mut() {
-      update_name(&mut def.name, source.clone(), src, main_imp, &mut def_map);
-    }
-
-    for (nam, def) in &mut self.fun_defs {
-      if let Source::Local(..) = def.source {
-        for rule in &mut def.rules {
-          let bod = std::mem::take(&mut rule.body);
-          rule.body = bod.fold_uses(def_map.iter().rev().filter(|(n, _)| n != &nam));
-        }
-        def.source = Source::Imported;
-      }
-    }
-
-    for (nam, (def, source)) in &mut self.imp_defs {
-      if let Source::Local(..) = source {
-        let bod = std::mem::take(&mut def.body);
-        def.body = bod.fold_uses(def_map.iter().rev().filter(|(n, _)| n != &nam));
-        *source = Source::Imported;
-      }
+    // Applies the binds for the new names for every definition
+    for (_, def) in self.local_defs_mut() {
+      def.apply_binds(false, &canonical_map);
+      *def.source_mut() = Source::Imported;
     }
   }
 }
@@ -253,10 +223,11 @@ impl ParseBook {
   pub fn top_level_names(&self) -> impl Iterator<Item = &Name> {
     let imp_defs = self.imp_defs.keys();
     let fun_defs = self.fun_defs.keys();
+    let hvm_defs = self.hvm_defs.keys();
     let adts = self.adts.keys();
     let ctrs = self.ctrs.keys();
 
-    imp_defs.chain(fun_defs).chain(adts).chain(ctrs)
+    imp_defs.chain(fun_defs).chain(hvm_defs).chain(adts).chain(ctrs)
   }
 
   fn add_imported_adt(&mut self, nam: Name, adt: Adt, diag: &mut Diagnostics) {
@@ -283,60 +254,129 @@ impl ParseBook {
   }
 
   fn add_imported_def(&mut self, def: Definition, diag: &mut Diagnostics) {
-    let name = &def.name;
+    if !self.has_def_conflict(&def.name, diag) {
+      self.fun_defs.insert(def.name.clone(), def);
+    }
+  }
+
+  fn add_imported_hvm_def(&mut self, def: HvmDefinition, diag: &mut Diagnostics) {
+    if !self.has_def_conflict(&def.name, diag) {
+      self.hvm_defs.insert(def.name.clone(), def);
+    }
+  }
+
+  fn has_def_conflict(&mut self, name: &Name, diag: &mut Diagnostics) -> bool {
     if self.contains_def(name) {
       let err = format!("The imported definition '{name}' conflicts with the definition '{name}'.");
       diag.add_book_error(err);
+      true
     } else if self.ctrs.contains_key(name) {
       let err = format!("The imported definition '{name}' conflicts with the constructor '{name}'.");
       diag.add_book_error(err);
+      true
+    } else {
+      false
     }
+  }
 
-    self.fun_defs.insert(name.clone(), def);
+  fn local_defs_mut(&mut self) -> impl Iterator<Item = (&Name, &mut dyn Def)> {
+    let fun = self.fun_defs.iter_mut().map(|(nam, def)| (nam, def as &mut dyn Def));
+    let imp = self.imp_defs.iter_mut().map(|(nam, def)| (nam, def as &mut dyn Def));
+    let hvm = self.hvm_defs.iter_mut().map(|(nam, def)| (nam, def as &mut dyn Def));
+    fun.chain(imp).chain(hvm).filter(|(_, def)| def.source().is_local())
   }
 }
 
-fn rename_ctr_patterns(rule: &mut Rule, map: &IndexMap<Name, Name>) {
-  for pat in &mut rule.pats {
-    for bind in pat.binds_mut().flatten() {
-      if let Some(alias) = map.get(bind) {
-        *bind = alias.clone();
+/// Common functions for the different definition types
+trait Def {
+  fn canonicalize_name(&mut self, src: &Name, main_imports: &ImportsMap, binds: &mut BindMap) {
+    let def_name = self.name_mut();
+    let mut new_name = Name::new(format!("{}/{}", src, def_name));
+
+    if !main_imports.contains_source(&new_name) {
+      new_name = Name::new(format!("__{}", new_name));
+    }
+
+    binds.insert(def_name.clone(), new_name.clone());
+    *def_name = new_name;
+  }
+
+  /// Should apply the binds to the definition,
+  /// and if there are possible constructor names on it, rename rule patterns.
+  fn apply_binds(&mut self, maybe_constructor: bool, binds: &BindMap);
+
+  fn source(&self) -> &Source;
+  fn source_mut(&mut self) -> &mut Source;
+  fn name_mut(&mut self) -> &mut Name;
+}
+
+impl Def for Definition {
+  fn apply_binds(&mut self, maybe_constructor: bool, binds: &BindMap) {
+    fn rename_ctr_patterns(rule: &mut Rule, binds: &BindMap) {
+      for pat in &mut rule.pats {
+        for bind in pat.binds_mut().flatten() {
+          if let Some(alias) = binds.get(bind) {
+            *bind = alias.clone();
+          }
+        }
       }
     }
+
+    for rule in &mut self.rules {
+      if maybe_constructor {
+        rename_ctr_patterns(rule, binds);
+      }
+      let bod = std::mem::take(&mut rule.body);
+      rule.body = bod.fold_uses(binds.iter().rev());
+    }
+  }
+
+  fn source(&self) -> &Source {
+    &self.source
+  }
+
+  fn source_mut(&mut self) -> &mut Source {
+    &mut self.source
+  }
+
+  fn name_mut(&mut self) -> &mut Name {
+    &mut self.name
   }
 }
 
-fn add_bind_to_map(map: &mut IndexMap<Name, Name>, bind: &Name, src: &Name, ctr: &Name) {
-  let full_ctr_name = ctr.split("__").nth(1).unwrap_or(ctr.as_ref());
-  let ctr_name = full_ctr_name.strip_prefix(src.as_ref()).unwrap();
-  let bind = Name::new(format!("{}{}", bind, ctr_name));
-  map.insert(bind, ctr.clone());
+impl Def for imp::Definition {
+  fn apply_binds(&mut self, _maybe_constructor: bool, binds: &BindMap) {
+    let bod = std::mem::take(&mut self.body);
+    self.body = bod.fold_uses(binds.iter().rev());
+  }
+
+  fn source(&self) -> &Source {
+    &self.source
+  }
+
+  fn source_mut(&mut self) -> &mut Source {
+    &mut self.source
+  }
+
+  fn name_mut(&mut self) -> &mut Name {
+    &mut self.name
+  }
 }
 
-fn update_name(
-  def_name: &mut Name,
-  def_source: Source,
-  src: &Name,
-  main_imp: &ImportsMap,
-  def_map: &mut IndexMap<Name, Name>,
-) {
-  match def_source {
-    Source::Local(..) => {
-      let mut new_name = Name::new(format!("{}/{}", src, def_name));
+impl Def for HvmDefinition {
+  /// Do nothing, can not apply binds to a HvmDefinition.
+  fn apply_binds(&mut self, _maybe_constructor: bool, _binds: &BindMap) {}
 
-      if !main_imp.contains_source(&new_name) {
-        new_name = Name::new(format!("__{}", new_name));
-      }
+  fn source(&self) -> &Source {
+    &self.source
+  }
 
-      def_map.insert(def_name.clone(), new_name.clone());
-      *def_name = new_name;
-    }
+  fn source_mut(&mut self) -> &mut Source {
+    &mut self.source
+  }
 
-    Source::Imported => {}
-
-    Source::Builtin | Source::Generated => {
-      unreachable!("No builtin or generated definition should be present at this step")
-    }
+  fn name_mut(&mut self) -> &mut Name {
+    &mut self.name
   }
 }
 

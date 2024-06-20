@@ -24,7 +24,7 @@ pub struct ParseBook {
   pub fun_defs: IndexMap<Name, FunDefinition>,
 
   /// The `imperative` function definitions.
-  pub imp_defs: IndexMap<Name, (ImpDefinition, Source)>,
+  pub imp_defs: IndexMap<Name, ImpDefinition>,
 
   /// HVM native function definitions.
   pub hvm_defs: HvmDefinitions,
@@ -44,11 +44,16 @@ pub struct ParseBook {
 
 impl ParseBook {
   pub fn contains_def(&self, name: &Name) -> bool {
-    self.fun_defs.contains_key(name) || self.imp_defs.contains_key(name)
+    self.fun_defs.contains_key(name) || self.imp_defs.contains_key(name) || self.hvm_defs.contains_key(name)
   }
 
   pub fn contains_builtin_def(&self, name: &Name) -> Option<bool> {
-    self.fun_defs.get(name).map(|d| d.is_builtin()).or(self.imp_defs.get(name).map(|(_, s)| s.is_builtin()))
+    self
+      .fun_defs
+      .get(name)
+      .map(|d| d.is_builtin())
+      .or_else(|| self.imp_defs.get(name).map(|d| d.source.is_builtin()))
+      .or_else(|| self.hvm_defs.get(name).map(|d| d.source.is_builtin()))
   }
 }
 
@@ -204,8 +209,8 @@ impl<'a> TermParser<'a> {
       let (name, rule) = self.parse_rule()?;
       let end_idx = *self.index();
 
-      if let Some((_, source)) = book.imp_defs.get(&name) {
-        let msg = Self::redefinition_of_function_msg(source.is_builtin(), &name);
+      if let Some(def) = book.imp_defs.get(&name) {
+        let msg = Self::redefinition_of_function_msg(def.source.is_builtin(), &name);
         return self.with_ctx(Err(msg), ini_idx..end_idx);
       }
 
@@ -894,14 +899,15 @@ impl<'a> TermParser<'a> {
 
   fn add_imp_def(
     &mut self,
-    def: crate::imp::Definition,
+    mut def: crate::imp::Definition,
     book: &mut ParseBook,
     span: Range<usize>,
     builtin: bool,
   ) -> ParseResult<()> {
     self.check_top_level_redefinition(&def.name, book, span.clone())?;
     let source = if builtin { Source::Builtin } else { Source::Local(span) };
-    book.imp_defs.insert(def.name.clone(), (def, source));
+    def.source = source;
+    book.imp_defs.insert(def.name.clone(), def);
     Ok(())
   }
 

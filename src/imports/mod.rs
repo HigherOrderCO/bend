@@ -12,6 +12,8 @@ pub mod packages;
 
 pub use loader::*;
 
+pub type BindMap = IndexMap<Name, Name>;
+
 #[derive(Debug, Clone, Default)]
 pub struct ImportCtx {
   /// Imports declared in the program source.
@@ -83,7 +85,7 @@ pub enum BoundSource {
 
 #[derive(Debug, Clone, Default)]
 struct ImportsMap {
-  binds: IndexMap<Name, Name>,
+  binds: BindMap,
 }
 
 impl ImportsMap {
