@@ -6,14 +6,37 @@ use std::{
   path::{Path, PathBuf},
 };
 
-pub const BEND_PATH: &[&str] = &[""];
-
 pub type Sources = IndexMap<Name, String>;
 
+/// Trait to load packages from various sources.
 pub trait PackageLoader {
+  /// Load a package specified by the `import` parameter.
+  ///
+  /// # Parameters
+  ///
+  /// - `import`: A mutable reference to an `Import` structure, which contains:
+  ///   - `path`: The path to the package or directory to be imported.
+  ///   - `imp_type`: The type of import, which can specify a single name, a list of names, or all names in a path.
+  ///   - `relative`: A boolean indicating if the path is relative to the current directory.
+  ///   - `src`: A `BoundSource` to be updated with the names of the located files.
+  ///
+  /// # Behavior
+  ///
+  /// The `load` method is responsible for locating and loading the requested package(s).
+  /// The loaded packages are returned as a `Sources` map, where the key is the package name and the value is its content.
+  /// Implementers must:
+  ///
+  /// - Track already loaded sources to avoid loading and returning them again.
+  /// - Update `import.src` with the names of the found packages, even if they are not included in the `Sources` map.
+  ///
+  /// The implementation should handle the following import types:
+  /// - **Single**: Load a specific file by its name.
+  /// - **List**: Load a list of specified files or names from a specific file.
+  /// - **Glob**: Load all files in a directory or all names from a specific file.
   fn load(&mut self, import: &mut Import) -> Result<Sources, String>;
 }
 
+/// Default implementation of `PackageLoader` that loads packages from the local directory.
 pub struct DefaultLoader {
   local_path: PathBuf,
   loaded: HashSet<Name>,
@@ -68,7 +91,7 @@ impl DefaultLoader {
       let mut names = Vec::new();
 
       match imp_type {
-        ImportType::Simple(file, _) => {
+        ImportType::Single(file, _) => {
           let name = self.read_file_in_folder(&full_path, path, file, &mut src)?;
           names.push(name);
         }
@@ -91,7 +114,7 @@ impl DefaultLoader {
         }
       }
 
-      return Some((BoundSource::Folder(names), src));
+      return Some((BoundSource::Dir(names), src));
     }
 
     None
@@ -101,6 +124,8 @@ impl DefaultLoader {
     self.loaded.contains(name)
   }
 }
+
+pub const BEND_PATH: &[&str] = &[""];
 
 impl PackageLoader for DefaultLoader {
   fn load(&mut self, import: &mut Import) -> Result<Sources, String> {

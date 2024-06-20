@@ -38,7 +38,7 @@ impl ImportCtx {
       match &imps.src {
         BoundSource::None => {}
         BoundSource::File(f) => names.push(f),
-        BoundSource::Folder(v) => names.extend(v),
+        BoundSource::Dir(v) => names.extend(v),
       }
     }
     names
@@ -61,7 +61,7 @@ impl Import {
 
 #[derive(Debug, Clone)]
 pub enum ImportType {
-  Simple(Name, Option<Name>),
+  Single(Name, Option<Name>),
   List(Vec<(Name, Option<Name>)>),
   Glob,
 }
@@ -69,7 +69,7 @@ pub enum ImportType {
 impl Display for ImportType {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
-      ImportType::Simple(n, _) => write!(f, "{n}"),
+      ImportType::Single(n, _) => write!(f, "{n}"),
       ImportType::List(l) => write!(f, "({})", l.iter().map(|(n, _)| n).join(", ")),
       ImportType::Glob => write!(f, "*"),
     }
@@ -80,7 +80,7 @@ impl Display for ImportType {
 pub enum BoundSource {
   None,
   File(Name),
-  Folder(Vec<Name>),
+  Dir(Vec<Name>),
 }
 
 #[derive(Debug, Clone, Default)]

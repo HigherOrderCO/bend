@@ -94,7 +94,7 @@ impl Packages {
 
     for Import { imp_type, src: pkgs, .. } in imports {
       match (pkgs, imp_type) {
-        (BoundSource::File(src), ImportType::Simple(nam, alias)) => {
+        (BoundSource::File(src), ImportType::Single(nam, alias)) => {
           let bound_book = self.books.get(&src).unwrap();
 
           if !bound_book.top_level_names().contains(&nam) {
@@ -140,18 +140,18 @@ impl Packages {
           }
         }
 
-        (BoundSource::Folder(mut src), ImportType::Simple(nam, alias)) => {
+        (BoundSource::Dir(mut src), ImportType::Single(nam, alias)) => {
           let src = src.pop().unwrap();
           self.add_book_bind(idx, src, nam, alias, diag);
         }
 
-        (BoundSource::Folder(pkgs), ImportType::List(names)) => {
+        (BoundSource::Dir(pkgs), ImportType::List(names)) => {
           for (src, (nam, alias)) in pkgs.into_iter().zip_eq(names) {
             self.add_book_bind(idx, src, nam, alias, diag);
           }
         }
 
-        (BoundSource::Folder(pkgs), ImportType::Glob) => {
+        (BoundSource::Dir(pkgs), ImportType::Glob) => {
           for src in pkgs {
             let nam = Name::new(src.split('/').last().unwrap());
             self.add_book_bind(idx, src, nam, None, diag);

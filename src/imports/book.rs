@@ -118,7 +118,7 @@ impl ParseBook {
     'outer: for (bind, src) in self.import_ctx.map.binds.iter().rev() {
       if self.contains_def(bind) | self.ctrs.contains_key(bind) | self.adts.contains_key(bind) {
         // TODO: Here we should show warnings for shadowing of imported names by local def/ctr/adt
-        // It can be done, but when importing with `ImportType::Simple` files in the same folder,
+        // It can be done, but when importing with `ImportType::Single` files in the same folder,
         // it gives a false positive warning
         continue;
       }
