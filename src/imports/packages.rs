@@ -16,7 +16,7 @@ pub struct Packages {
   pub books: IndexMap<Name, ParseBook>,
   /// Already loaded ADTs information to be used when applying ADT binds.
   pub loaded_adts: IndexMap<Name, IndexMap<Name, Vec<Name>>>,
-  /// Queue of books indexes that still needs to load its imports
+  /// Queue of books indexes that still needs to load its imports.
   load_queue: VecDeque<usize>,
 }
 
