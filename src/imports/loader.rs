@@ -3,7 +3,7 @@ use crate::fun::Name;
 use indexmap::IndexMap;
 use std::{
   collections::HashSet,
-  path::{Path, PathBuf},
+  path::{Component, Path, PathBuf},
 };
 
 pub type Sources = IndexMap<Name, String>;
@@ -40,23 +40,33 @@ pub trait PackageLoader {
 pub struct DefaultLoader {
   local_path: PathBuf,
   loaded: HashSet<Name>,
+  entrypoint: Name,
 }
 
 impl DefaultLoader {
   pub fn new(local_path: &Path) -> Self {
+    let entrypoint = Name::new(local_path.file_stem().unwrap().to_string_lossy());
     let local_path = local_path.parent().unwrap().to_path_buf();
-    Self { local_path, loaded: HashSet::new() }
+    Self { local_path, loaded: HashSet::new(), entrypoint }
   }
 
-  fn read_file(&mut self, path: &Path, file: Name, src: &mut Sources) -> Option<Name> {
-    if !self.is_loaded(&file) {
-      self.loaded.insert(file.clone());
+  fn read_file(&mut self, path: &Path, file_path: &str, src: &mut Sources) -> Result<Option<Name>, String> {
+    let normalized = normalize_path(&PathBuf::from(file_path));
+    let file_path = Name::new(normalized.to_string_lossy());
+
+    if self.entrypoint == file_path {
+      return Err("Can not import the entry point of the program.".to_string());
+    };
+
+    if !self.is_loaded(&file_path) {
+      self.loaded.insert(file_path.clone());
 
       let path = path.with_extension("bend");
-      let code = std::fs::read_to_string(path).ok()?;
-      src.insert(file.clone(), code);
+      let Some(code) = std::fs::read_to_string(path).ok() else { return Ok(None) };
+      src.insert(file_path.clone(), code);
     }
-    Some(file)
+
+    Ok(Some(file_path))
   }
 
   fn read_file_in_folder(
@@ -65,11 +75,15 @@ impl DefaultLoader {
     folder: &str,
     file_name: &str,
     src: &mut Sources,
-  ) -> Option<Name> {
-    let file_path = Name::new(format!("{}/{}", folder, file_name));
+  ) -> Result<Option<Name>, String> {
     let full_path = full_path.join(file_name);
 
-    self.read_file(&full_path, file_path, src)
+    if folder.is_empty() {
+      self.read_file(&full_path, file_name, src)
+    } else {
+      let file_name = &format!("{}/{}", folder, file_name);
+      self.read_file(&full_path, file_name, src)
+    }
   }
 
   fn read_path(
@@ -77,12 +91,12 @@ impl DefaultLoader {
     base_path: &Path,
     path: &Name,
     imp_type: &ImportType,
-  ) -> Option<(BoundSource, Sources)> {
+  ) -> Result<Option<(BoundSource, Sources)>, String> {
     let full_path = base_path.join(path.as_ref());
     let mut src = IndexMap::new();
 
     let file = if full_path.with_extension("bend").is_file() {
-      self.read_file(&full_path, path.clone(), &mut src)
+      self.read_file(&full_path, path.as_ref(), &mut src)?
     } else {
       None
     };
@@ -92,13 +106,13 @@ impl DefaultLoader {
 
       match imp_type {
         ImportType::Single(file, _) => {
-          if let Some(name) = self.read_file_in_folder(&full_path, path, file, &mut src) {
+          if let Some(name) = self.read_file_in_folder(&full_path, path, file, &mut src)? {
             names.insert(file.clone(), name);
           }
         }
         ImportType::List(list) => {
           for (file, _) in list {
-            if let Some(name) = self.read_file_in_folder(&full_path, path, file, &mut src) {
+            if let Some(name) = self.read_file_in_folder(&full_path, path, file, &mut src)? {
               names.insert(file.clone(), name);
             }
           }
@@ -109,7 +123,7 @@ impl DefaultLoader {
 
             if let Some("bend") = file.extension().and_then(|f| f.to_str()) {
               let file = file.file_stem().unwrap().to_string_lossy();
-              if let Some(name) = self.read_file_in_folder(&full_path, path, &file, &mut src) {
+              if let Some(name) = self.read_file_in_folder(&full_path, path, &file, &mut src)? {
                 names.insert(Name::new(file), name);
               }
             }
@@ -126,12 +140,14 @@ impl DefaultLoader {
       None
     };
 
-    match (file, dir) {
+    let src = match (file, dir) {
       (Some(f), None) => Some((BoundSource::File(f), src)),
       (None, Some(d)) => Some((BoundSource::Dir(d), src)),
       (Some(f), Some(d)) => Some((BoundSource::Either(f, d), src)),
       (None, None) => None,
-    }
+    };
+
+    Ok(src)
   }
 
   fn is_loaded(&self, name: &Name) -> bool {
@@ -154,7 +170,7 @@ impl PackageLoader for DefaultLoader {
     };
 
     for base in folders {
-      let Some((names, new_pkgs)) = self.read_path(&base, path, imp_type) else { continue };
+      let Some((names, new_pkgs)) = self.read_path(&base, path, imp_type)? else { continue };
 
       *src = names;
       sources.extend(new_pkgs);
@@ -167,4 +183,32 @@ impl PackageLoader for DefaultLoader {
 
     Ok(sources)
   }
+}
+
+// Taken from 'cargo/util/paths.rs'
+pub fn normalize_path(path: &Path) -> PathBuf {
+  let mut components = path.components().peekable();
+  let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
+    components.next();
+    PathBuf::from(c.as_os_str())
+  } else {
+    PathBuf::new()
+  };
+
+  for component in components {
+    match component {
+      Component::Prefix(..) => unreachable!(),
+      Component::RootDir => {
+        ret.push(component.as_os_str());
+      }
+      Component::CurDir => {}
+      Component::ParentDir => {
+        ret.pop();
+      }
+      Component::Normal(c) => {
+        ret.push(c);
+      }
+    }
+  }
+  ret
 }

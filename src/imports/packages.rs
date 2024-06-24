@@ -1,14 +1,10 @@
-use super::{loader::PackageLoader, BoundSource, ImportCtx, ImportType, ImportsMap};
+use super::{loader::PackageLoader, normalize_path, BoundSource, ImportCtx, ImportType, ImportsMap};
 use crate::{
   diagnostics::Diagnostics,
   fun::{load_book::do_parse_book, parser::ParseBook, Name},
 };
 use indexmap::{IndexMap, IndexSet};
-use std::{
-  cell::RefCell,
-  collections::VecDeque,
-  path::{Component, Path, PathBuf},
-};
+use std::{cell::RefCell, collections::VecDeque, path::PathBuf};
 
 #[derive(Default)]
 pub struct Packages {
@@ -23,7 +19,7 @@ pub struct Packages {
 impl Packages {
   pub fn new(book: ParseBook) -> Self {
     Self {
-      books: IndexMap::from([(Name::default(), book.into())]),
+      books: IndexMap::from([(book.source.clone(), book.into())]),
       load_queue: VecDeque::new(),
       loaded_adts: IndexMap::new(),
     }
@@ -84,7 +80,7 @@ impl Packages {
     }
 
     for (psrc, code) in sources {
-      let module = do_parse_book(&code, &psrc, ParseBook::default())?;
+      let module = do_parse_book(&code, &PathBuf::from(psrc.as_ref()), ParseBook::default())?;
       self.load_queue.push_back(self.books.len());
       self.books.insert(psrc, module.into());
     }
@@ -238,32 +234,4 @@ impl Packages {
     let bound_book = self.books.get(src).unwrap().borrow();
     bound_book.top_level_names().cloned().collect()
   }
-}
-
-// Taken from 'cargo/util/paths.rs'
-fn normalize_path(path: &Path) -> PathBuf {
-  let mut components = path.components().peekable();
-  let mut ret = if let Some(c @ Component::Prefix(..)) = components.peek().cloned() {
-    components.next();
-    PathBuf::from(c.as_os_str())
-  } else {
-    PathBuf::new()
-  };
-
-  for component in components {
-    match component {
-      Component::Prefix(..) => unreachable!(),
-      Component::RootDir => {
-        ret.push(component.as_os_str());
-      }
-      Component::CurDir => {}
-      Component::ParentDir => {
-        ret.pop();
-      }
-      Component::Normal(c) => {
-        ret.push(c);
-      }
-    }
-  }
-  ret
 }

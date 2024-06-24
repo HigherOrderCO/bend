@@ -6,7 +6,7 @@ use crate::{
   diagnostics::{Diagnostics, DiagnosticsConfig},
   imports::PackageLoader,
 };
-use std::{fmt::Display, path::Path};
+use std::path::Path;
 
 // TODO: Refactor so that we don't mix the two syntaxes here.
 
@@ -17,11 +17,11 @@ pub fn load_file_to_book(
   diag: DiagnosticsConfig,
 ) -> Result<Book, Diagnostics> {
   let code = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-  load_to_book(path.display(), &code, package_loader, diag)
+  load_to_book(path, &code, package_loader, diag)
 }
 
-pub fn load_to_book<T: Display>(
-  origin: T,
+pub fn load_to_book(
+  origin: &Path,
   code: &str,
   package_loader: impl PackageLoader,
   diag: DiagnosticsConfig,
@@ -31,11 +31,11 @@ pub fn load_to_book<T: Display>(
   book.load_imports(package_loader, diag)
 }
 
-pub fn do_parse_book<T: Display>(code: &str, origin: T, mut book: ParseBook) -> Result<ParseBook, String> {
-  book.source = Name::new(format!("{origin}"));
-  TermParser::new(code).parse_book(book, false).map_err(|e| format!("In {} :\n{}", origin, e))
+pub fn do_parse_book(code: &str, origin: &Path, mut book: ParseBook) -> Result<ParseBook, String> {
+  book.source = Name::new(origin.to_string_lossy());
+  TermParser::new(code).parse_book(book, false).map_err(|e| format!("In {} :\n{}", origin.display(), e))
 }
 
-pub fn do_parse_book_default<T: Display>(code: &str, origin: T) -> Result<Book, String> {
+pub fn do_parse_book_default(code: &str, origin: &Path) -> Result<Book, String> {
   do_parse_book(code, origin, ParseBook::builtins())?.to_fun()
 }
