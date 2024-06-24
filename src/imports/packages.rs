@@ -1,19 +1,19 @@
-use super::{loader::PackageLoader, BoundSource, Import, ImportType};
+use super::{loader::PackageLoader, BoundSource, ImportCtx, ImportType, ImportsMap};
 use crate::{
   diagnostics::Diagnostics,
   fun::{load_book::do_parse_book, parser::ParseBook, Name},
 };
 use indexmap::{IndexMap, IndexSet};
-use itertools::Itertools;
 use std::{
-  collections::{HashSet, VecDeque},
+  cell::RefCell,
+  collections::VecDeque,
   path::{Component, Path, PathBuf},
 };
 
 #[derive(Default)]
 pub struct Packages {
   /// Map from source name to parsed book.
-  pub books: IndexMap<Name, ParseBook>,
+  pub books: IndexMap<Name, RefCell<ParseBook>>,
   /// Already loaded ADTs information to be used when applying ADT binds.
   pub loaded_adts: IndexMap<Name, IndexMap<Name, Vec<Name>>>,
   /// Queue of books indexes that still needs to load its imports.
@@ -23,7 +23,7 @@ pub struct Packages {
 impl Packages {
   pub fn new(book: ParseBook) -> Self {
     Self {
-      books: IndexMap::from([(Name::default(), book)]),
+      books: IndexMap::from([(Name::default(), book.into())]),
       load_queue: VecDeque::new(),
       loaded_adts: IndexMap::new(),
     }
@@ -41,8 +41,10 @@ impl Packages {
     self.load_imports_go(0, None, loader)?;
 
     while let Some(idx) = self.load_queue.pop_front() {
-      let psrc = &self.get_book(idx).source;
-      let parent_dir = psrc.rsplit_once('/').map(|(s, _)| Name::new(s));
+      let parent_dir = {
+        let book = self.books[idx].borrow();
+        book.source.rsplit_once('/').map(|(s, _)| Name::new(s))
+      };
       self.load_imports_go(idx, parent_dir, loader)?;
     }
 
@@ -52,7 +54,7 @@ impl Packages {
 
     let (_, book) = self.books.swap_remove_index(0).unwrap();
 
-    diag.fatal(book)
+    diag.fatal(book.into_inner())
   }
 
   fn load_imports_go(
@@ -61,101 +63,146 @@ impl Packages {
     dir: Option<Name>,
     loader: &mut impl PackageLoader,
   ) -> Result<(), Diagnostics> {
-    let names = &mut self.get_book_mut(idx).import_ctx.imports;
     let mut sources = IndexMap::new();
 
-    for import in names {
-      if import.relative {
-        if let Some(ref dir) = dir {
-          let path = format!("{}/{}", dir, import.path);
-          let normalized = normalize_path(&PathBuf::from(path));
-          import.path = Name::new(normalized.to_string_lossy());
-        }
-      }
+    {
+      let mut book = self.books[idx].borrow_mut();
+      let names = &mut book.import_ctx.imports;
 
-      let loaded = loader.load(import)?;
-      sources.extend(loaded);
+      for import in names {
+        if import.relative {
+          if let Some(ref dir) = dir {
+            let path = format!("{}/{}", dir, import.path);
+            let normalized = normalize_path(&PathBuf::from(path));
+            import.path = Name::new(normalized.to_string_lossy());
+          }
+        }
+
+        let loaded = loader.load(import)?;
+        sources.extend(loaded);
+      }
     }
 
     for (psrc, code) in sources {
       let module = do_parse_book(&code, &psrc, ParseBook::default())?;
       self.load_queue.push_back(self.books.len());
-      self.books.insert(psrc, module);
+      self.books.insert(psrc, module.into());
     }
 
     Ok(())
   }
 
   /// Maps the `ImportType` of each import to the top level names it relates,
-  /// checks if it is valid, and adds to the book ImportMap.
+  /// checks if it is valid, resolves `BoundSource::Either`, and adds to the book ImportMap.
   fn load_binds(&mut self, idx: usize, diag: &mut Diagnostics) {
-    let book = self.get_book(idx);
-    let imports = book.import_ctx.imports.clone();
+    let book = &mut self.books[idx].borrow_mut();
+    let ImportCtx { imports, map } = &mut book.import_ctx;
 
-    for Import { imp_type, src: pkgs, .. } in imports {
-      match (pkgs, imp_type) {
-        (BoundSource::File(src), ImportType::Single(nam, alias)) => {
-          let bound_book = self.books.get(&src).unwrap();
-
-          if !bound_book.top_level_names().contains(&nam) {
-            let err = format!("Package '{src}' does not contain the top level name '{nam}'");
+    for import in imports {
+      match (&mut import.src, &import.imp_type) {
+        (BoundSource::Either(src, pkgs), ImportType::Single(nam, alias)) => {
+          if self.unique_top_level_names(src).contains(nam) {
+            let err = format!("Both file '{src}.bend' and folder '{src}' contains the import '{nam}'");
             diag.add_book_error(err);
+            continue;
           }
 
-          let book = self.get_book_mut(idx);
-
-          let src = format!("{}/{}", src, nam);
-          let aliased = alias.unwrap_or(nam);
-          book.import_ctx.map.add_bind(aliased, &src, diag);
+          self.add_file_from_dir(pkgs, nam, alias, map, diag);
+          import.src = BoundSource::Dir(std::mem::take(pkgs));
         }
 
-        (BoundSource::File(src), ImportType::List(names)) => {
-          let bound_book = self.books.get(&src).unwrap();
+        (BoundSource::Either(src, pkgs), ImportType::List(names)) => {
+          for (name, alias) in names {
+            let added = self.add_file_from_dir(pkgs, name, alias, map, diag);
 
-          for (sub, _) in &names {
-            if !bound_book.top_level_names().contains(&sub) {
-              let err = format!("Package '{src}' does not contain the top level name '{sub}'");
-              diag.add_book_error(err);
+            if !added {
+              if !self.unique_top_level_names(src).contains(name) {
+                let err = format!("Package '{src}' does not contain the top level name '{name}'");
+                diag.add_book_error(err);
+                continue;
+              }
+
+              pkgs.insert(name.clone(), src.clone());
+              map.add_aliased_bind(src, name, alias.as_ref(), diag)
             }
           }
 
-          let book = self.get_book_mut(idx);
+          import.src = BoundSource::Dir(std::mem::take(pkgs));
+        }
 
-          for (sub, alias) in names {
-            let src = format!("{}/{}", src, sub);
-            let aliased = alias.unwrap_or(sub);
-            book.import_ctx.map.add_bind(aliased, &src, diag);
+        (BoundSource::Either(src, pkgs), ImportType::Glob) => {
+          let names = self.unique_top_level_names(src);
+          let mut error = false;
+
+          for nam in pkgs.keys() {
+            if names.contains(nam) {
+              let err = format!("Both file '{src}.bend' and folder '{src}' contains the import '{nam}'");
+              diag.add_book_error(err);
+              error = true;
+            }
           }
+
+          if error {
+            continue;
+          }
+
+          self.add_glob_from_dir(pkgs, map, diag);
+
+          for sub in &names {
+            pkgs.insert(sub.clone(), src.clone());
+          }
+
+          map.add_binds(&names, src, diag);
+
+          import.src = BoundSource::Dir(std::mem::take(pkgs));
+        }
+
+        (BoundSource::File(src), ImportType::Single(nam, alias)) => {
+          if !self.unique_top_level_names(src).contains(nam) {
+            let err = format!("Package '{src}' does not contain the top level name '{nam}'");
+            diag.add_book_error(err);
+            continue;
+          }
+
+          map.add_aliased_bind(src, nam, alias.as_ref(), diag)
+        }
+
+        (BoundSource::File(src), ImportType::List(names)) => {
+          let src_names = self.unique_top_level_names(src);
+          let mut error = false;
+
+          for (sub, _) in names {
+            if !src_names.contains(sub) {
+              let err = format!("Package '{src}' does not contain the top level name '{sub}'");
+              diag.add_book_error(err);
+              error = true;
+            }
+          }
+
+          if error {
+            continue;
+          }
+
+          map.add_aliased_binds(names, src, diag);
         }
 
         (BoundSource::File(src), ImportType::Glob) => {
-          let bound_book = self.books.get(&src).unwrap();
-          let names: HashSet<_> = bound_book.top_level_names().cloned().collect();
-
-          let book = self.get_book_mut(idx);
-
-          for sub in names {
-            let src = format!("{}/{}", src, sub);
-            book.import_ctx.map.add_bind(sub, &src, diag);
-          }
+          let names = self.unique_top_level_names(src);
+          map.add_binds(&names, src, diag);
         }
 
-        (BoundSource::Dir(mut src), ImportType::Single(nam, alias)) => {
-          let src = src.pop().unwrap();
-          self.add_book_bind(idx, src, nam, alias, diag);
+        (BoundSource::Dir(pkgs), ImportType::Single(nam, alias)) => {
+          self.add_file_from_dir(pkgs, nam, alias, map, diag);
         }
 
         (BoundSource::Dir(pkgs), ImportType::List(names)) => {
-          for (src, (nam, alias)) in pkgs.into_iter().zip_eq(names) {
-            self.add_book_bind(idx, src, nam, alias, diag);
+          for (nam, alias) in names {
+            self.add_file_from_dir(pkgs, nam, alias, map, diag);
           }
         }
 
         (BoundSource::Dir(pkgs), ImportType::Glob) => {
-          for src in pkgs {
-            let nam = Name::new(src.split('/').last().unwrap());
-            self.add_book_bind(idx, src, nam, None, diag);
-          }
+          self.add_glob_from_dir(pkgs, map, diag);
         }
 
         (BoundSource::None, _) => unreachable!(),
@@ -163,36 +210,33 @@ impl Packages {
     }
   }
 
-  /// Adds all top level names of the book to the ImportMap in the form `alias/name`.
-  /// If one of the names is equal to the name of the book, adds as `alias` instead.
-  fn add_book_bind(&mut self, idx: usize, src: Name, nam: Name, alias: Option<Name>, diag: &mut Diagnostics) {
-    let bound_book = self.books.get(&src).unwrap();
-    let names: IndexSet<_> = bound_book.top_level_names().cloned().collect();
-
-    let aliased = alias.as_ref().unwrap_or(&nam);
-
-    let book = self.get_book_mut(idx);
-
-    for name in &names {
-      if name != &nam {
-        let src = format!("{}/{}", src, name);
-        let bind = Name::new(format!("{aliased}/{name}"));
-        book.import_ctx.map.add_bind(bind, &src, diag);
-      }
-    }
-
-    if names.contains(&nam) {
-      let src = format!("{}/{}", src, nam);
-      book.import_ctx.map.add_bind(aliased.clone(), &src, diag);
+  fn add_file_from_dir(
+    &self,
+    pkgs: &IndexMap<Name, Name>,
+    nam: &Name,
+    alias: &Option<Name>,
+    map: &mut ImportsMap,
+    diag: &mut Diagnostics,
+  ) -> bool {
+    if let Some(src) = pkgs.get(nam) {
+      let names = self.unique_top_level_names(src);
+      map.add_nested_binds(src, nam, alias.as_ref(), names, diag);
+      true
+    } else {
+      false
     }
   }
 
-  fn get_book(&self, idx: usize) -> &ParseBook {
-    self.books.get_index(idx).unwrap().1
+  fn add_glob_from_dir(&self, pkgs: &IndexMap<Name, Name>, map: &mut ImportsMap, diag: &mut Diagnostics) {
+    for (nam, src) in pkgs {
+      let names = self.unique_top_level_names(src);
+      map.add_nested_binds(src, nam, None, names, diag);
+    }
   }
 
-  fn get_book_mut(&mut self, idx: usize) -> &mut ParseBook {
-    self.books.get_index_mut(idx).unwrap().1
+  fn unique_top_level_names(&self, src: &Name) -> IndexSet<Name> {
+    let bound_book = self.books.get(src).unwrap().borrow();
+    bound_book.top_level_names().cloned().collect()
   }
 }
 

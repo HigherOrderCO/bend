@@ -81,24 +81,26 @@ impl DefaultLoader {
     let full_path = base_path.join(path.as_ref());
     let mut src = IndexMap::new();
 
-    if full_path.with_extension("bend").is_file() {
-      if let Some(nam) = self.read_file(&full_path, path.clone(), &mut src) {
-        return Some((BoundSource::File(nam), src));
-      }
-    }
+    let file = if full_path.with_extension("bend").is_file() {
+      self.read_file(&full_path, path.clone(), &mut src)
+    } else {
+      None
+    };
 
-    if full_path.is_dir() || path.is_empty() {
-      let mut names = Vec::new();
+    let dir = if full_path.is_dir() || path.is_empty() {
+      let mut names = IndexMap::new();
 
       match imp_type {
         ImportType::Single(file, _) => {
-          let name = self.read_file_in_folder(&full_path, path, file, &mut src)?;
-          names.push(name);
+          if let Some(name) = self.read_file_in_folder(&full_path, path, file, &mut src) {
+            names.insert(file.clone(), name);
+          }
         }
         ImportType::List(list) => {
           for (file, _) in list {
-            let name = self.read_file_in_folder(&full_path, path, file, &mut src)?;
-            names.push(name);
+            if let Some(name) = self.read_file_in_folder(&full_path, path, file, &mut src) {
+              names.insert(file.clone(), name);
+            }
           }
         }
         ImportType::Glob => {
@@ -107,17 +109,29 @@ impl DefaultLoader {
 
             if let Some("bend") = file.extension().and_then(|f| f.to_str()) {
               let file = file.file_stem().unwrap().to_string_lossy();
-              let name = self.read_file_in_folder(&full_path, path, &file, &mut src)?;
-              names.push(name);
+              if let Some(name) = self.read_file_in_folder(&full_path, path, &file, &mut src) {
+                names.insert(Name::new(file), name);
+              }
             }
           }
         }
       }
 
-      return Some((BoundSource::Dir(names), src));
-    }
+      if names.is_empty() {
+        None
+      } else {
+        Some(names)
+      }
+    } else {
+      None
+    };
 
-    None
+    match (file, dir) {
+      (Some(f), None) => Some((BoundSource::File(f), src)),
+      (None, Some(d)) => Some((BoundSource::Dir(d), src)),
+      (Some(f), Some(d)) => Some((BoundSource::Either(f, d), src)),
+      (None, None) => None,
+    }
   }
 
   fn is_loaded(&self, name: &Name) -> bool {

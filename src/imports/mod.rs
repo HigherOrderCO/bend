@@ -2,7 +2,7 @@ use crate::{
   diagnostics::{Diagnostics, WarningType},
   fun::Name,
 };
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use itertools::Itertools;
 use std::fmt::Display;
 
@@ -38,7 +38,8 @@ impl ImportCtx {
       match &imps.src {
         BoundSource::None => {}
         BoundSource::File(f) => names.push(f),
-        BoundSource::Dir(v) => names.extend(v),
+        BoundSource::Dir(v) => names.extend(v.values()),
+        BoundSource::Either(_, _) => unreachable!("This should be resolved into `File` or `Dir` by now"),
       }
     }
     names
@@ -47,10 +48,10 @@ impl ImportCtx {
 
 #[derive(Debug, Clone)]
 pub struct Import {
-  path: Name,
-  imp_type: ImportType,
-  relative: bool,
-  src: BoundSource,
+  pub path: Name,
+  pub imp_type: ImportType,
+  pub relative: bool,
+  pub src: BoundSource,
 }
 
 impl Import {
@@ -80,7 +81,9 @@ impl Display for ImportType {
 pub enum BoundSource {
   None,
   File(Name),
-  Dir(Vec<Name>),
+  Dir(IndexMap<Name, Name>),
+  /// If the bound source is ambiguous between a file or a directory
+  Either(Name, IndexMap<Name, Name>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -93,12 +96,56 @@ impl ImportsMap {
     self.binds.values().contains(s)
   }
 
-  fn add_bind(&mut self, bind: Name, src: &str, diag: &mut Diagnostics) {
+  fn add_bind(&mut self, src: &str, bind: Name, diag: &mut Diagnostics) {
     if let Some(old) = self.binds.get(&bind) {
       let warn = format!("The import '{src}' shadows the imported name '{old}'");
       diag.add_book_warning(warn, WarningType::ImportShadow);
     }
 
     self.binds.insert(bind, Name::new(src));
+  }
+
+  fn add_aliased_bind(&mut self, src: &Name, sub: &Name, alias: Option<&Name>, diag: &mut Diagnostics) {
+    let src = format!("{}/{}", src, sub);
+    let aliased = alias.unwrap_or(sub);
+    self.add_bind(&src, aliased.clone(), diag);
+  }
+
+  fn add_binds(&mut self, names: &IndexSet<Name>, src: &Name, diag: &mut Diagnostics) {
+    for sub in names {
+      self.add_aliased_bind(src, sub, None, diag);
+    }
+  }
+
+  fn add_aliased_binds(&mut self, names: &[(Name, Option<Name>)], src: &Name, diag: &mut Diagnostics) {
+    for (sub, alias) in names {
+      self.add_aliased_bind(src, sub, alias.as_ref(), diag);
+    }
+  }
+
+  /// Adds all names to the ImportMap in the form `alias/name`.
+  /// If one of the names is equal to the non-aliased name, adds as `alias` instead.
+  fn add_nested_binds(
+    &mut self,
+    src: &Name,
+    nam: &Name,
+    alias: Option<&Name>,
+    names: IndexSet<Name>,
+    diag: &mut Diagnostics,
+  ) {
+    let aliased = alias.unwrap_or(nam);
+
+    for name in &names {
+      if name != nam {
+        let src = format!("{}/{}", src, name);
+        let bind = Name::new(format!("{aliased}/{name}"));
+        self.add_bind(&src, bind, diag);
+      }
+    }
+
+    if names.contains(nam) {
+      let src = format!("{}/{}", src, nam);
+      self.add_bind(&src, aliased.clone(), diag);
+    }
   }
 }

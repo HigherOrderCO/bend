@@ -68,7 +68,8 @@ impl ParseBook {
     let sources = self.import_ctx.sources().into_iter().cloned().collect_vec();
 
     for src in sources {
-      let Some(mut package) = pkgs.books.swap_remove(&src) else { continue };
+      let Some(package) = pkgs.books.swap_remove(&src) else { continue };
+      let mut package = package.into_inner();
 
       // Can not be done outside the loop/function because of the borrow checker.
       // Just serves to pass only the import map of the first call to `apply_imports_go`.
