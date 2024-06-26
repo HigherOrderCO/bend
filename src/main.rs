@@ -3,6 +3,7 @@ use bend::{
   diagnostics::{Diagnostics, DiagnosticsConfig, Severity},
   fun::{Book, Name},
   hvm::hvm_book_show_pretty,
+  imports::DefaultLoader,
   load_file_to_book, run_book, AdtEncoding, CompileOpts, OptLevel, RunOpts,
 };
 use clap::{Args, CommandFactory, Parser, Subcommand};
@@ -230,6 +231,8 @@ pub enum WarningArgs {
   UnusedDefinition,
   RepeatedBind,
   RecursionCycle,
+  ImportShadow,
+  MissingMain,
 }
 
 fn main() -> ExitCode {
@@ -249,8 +252,9 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
   let arg_verbose = cli.verbose;
   let entrypoint = cli.entrypoint.take();
 
-  let load_book = |path: &Path| -> Result<Book, Diagnostics> {
-    let mut book = load_file_to_book(path)?;
+  let load_book = |path: &Path, diag: DiagnosticsConfig| -> Result<Book, Diagnostics> {
+    let package_loader = DefaultLoader::new(path);
+    let mut book = load_file_to_book(path, package_loader, diag)?;
     book.entrypoint = entrypoint.map(Name::new);
 
     if arg_verbose {
@@ -287,7 +291,7 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
       let diagnostics_cfg = set_warning_cfg_from_cli(DiagnosticsConfig::default(), warn_opts);
       let compile_opts = compile_opts_from_cli(&comp_opts);
 
-      let mut book = load_book(&path)?;
+      let mut book = load_book(&path, diagnostics_cfg)?;
       let diagnostics = check_book(&mut book, diagnostics_cfg, compile_opts)?;
       eprintln!("{}", diagnostics);
     }
@@ -296,7 +300,7 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
       let diagnostics_cfg = set_warning_cfg_from_cli(DiagnosticsConfig::default(), warn_opts);
       let opts = compile_opts_from_cli(&comp_opts);
 
-      let mut book = load_book(&path)?;
+      let mut book = load_book(&path, diagnostics_cfg)?;
       let compile_res = compile_book(&mut book, opts, diagnostics_cfg, None)?;
 
       eprint!("{}", compile_res.diagnostics);
@@ -317,7 +321,7 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
 
       let run_opts = RunOpts { linear_readback: linear, pretty, hvm_path: hvm_bin };
 
-      let book = load_book(&path)?;
+      let book = load_book(&path, diagnostics_cfg)?;
       if let Some((term, stats, diags)) =
         run_book(book, run_opts, compile_opts, diagnostics_cfg, arguments, run_cmd)?
       {
@@ -338,7 +342,7 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
       let diagnostics_cfg = set_warning_cfg_from_cli(DiagnosticsConfig::default(), warn_opts);
       let opts = compile_opts_from_cli(&comp_opts);
 
-      let mut book = load_book(&path)?;
+      let mut book = load_book(&path, diagnostics_cfg)?;
       let compile_res = compile_book(&mut book, opts, diagnostics_cfg, None)?;
 
       let out_path = ".out.hvm";
@@ -369,7 +373,7 @@ fn execute_cli_mode(mut cli: Cli) -> Result<(), Diagnostics> {
 
       let opts = compile_opts_from_cli(&comp_opts);
 
-      let mut book = load_book(&path)?;
+      let mut book = load_book(&path, diagnostics_cfg)?;
       let diagnostics = desugar_book(&mut book, opts, diagnostics_cfg, None)?;
 
       eprint!("{diagnostics}");
@@ -393,6 +397,7 @@ fn set_warning_cfg_from_cli(mut cfg: DiagnosticsConfig, warn_opts: CliWarnOpts) 
         cfg.unused_definition = severity;
         cfg.repeated_bind = severity;
         cfg.recursion_cycle = severity;
+        cfg.import_shadow = severity;
       }
       WarningArgs::IrrefutableMatch => cfg.irrefutable_match = severity,
       WarningArgs::RedundantMatch => cfg.redundant_match = severity,
@@ -400,6 +405,8 @@ fn set_warning_cfg_from_cli(mut cfg: DiagnosticsConfig, warn_opts: CliWarnOpts) 
       WarningArgs::UnusedDefinition => cfg.unused_definition = severity,
       WarningArgs::RepeatedBind => cfg.repeated_bind = severity,
       WarningArgs::RecursionCycle => cfg.recursion_cycle = severity,
+      WarningArgs::ImportShadow => cfg.import_shadow = severity,
+      WarningArgs::MissingMain => cfg.missing_main = severity, // TODO: Should `WarningArgs::All` modify this as well?
     }
   }
 

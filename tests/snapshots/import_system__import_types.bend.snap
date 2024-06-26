@@ -1,0 +1,5 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/import_system/import_types.bend
+---
+lib/types/Bool/False

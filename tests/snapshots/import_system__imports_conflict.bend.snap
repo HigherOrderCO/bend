@@ -1,0 +1,7 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/import_system/imports_conflict.bend
+---
+[4m[1m[31mErrors:[0m
+The imported definition 'lib/a/b/C' conflicts with the definition 'lib/a/b/C'.
+The imported constructor 'lib/a/b/C' conflicts with the definition 'lib/a/b/C'.

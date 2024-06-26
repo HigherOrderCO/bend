@@ -1,4 +1,5 @@
 use crate::{
+  diagnostics::WarningType,
   fun::{Book, Ctx, Definition, Name},
   ENTRY_POINT, HVM1_ENTRY_POINT,
 };
@@ -43,7 +44,7 @@ impl Ctx<'_> {
 
       (None, None, None) => {
         let entrypoint = self.book.entrypoint.clone().unwrap_or(Name::new(ENTRY_POINT));
-        self.info.add_book_error(EntryErr::NotFound(entrypoint))
+        self.info.add_book_warning(EntryErr::NotFound(entrypoint), WarningType::MissingMain)
       }
     }
 

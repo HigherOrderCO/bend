@@ -21,6 +21,15 @@ impl Book {
       }
     }
   }
+
+  /// Inline copies of the declared bind in `Fold`, `Mat` and `Open` inside `use` expressions.
+  pub fn desugar_ctr_use(&mut self) {
+    for def in self.defs.values_mut() {
+      for rule in def.rules.iter_mut() {
+        rule.body.desugar_ctr_use();
+      }
+    }
+  }
 }
 
 impl Term {
@@ -34,6 +43,20 @@ impl Term {
     if let Term::Use { nam: Some(nam), val, nxt } = self {
       nxt.subst(nam, val);
       *self = std::mem::take(nxt);
+    }
+  }
+
+  pub fn desugar_ctr_use(&mut self) {
+    maybe_grow(|| {
+      for children in self.children_mut() {
+        children.desugar_ctr_use();
+      }
+    });
+
+    if let Term::Use { nam: Some(nam), val, nxt } = self {
+      if let Term::Var { nam: val } = val.as_ref() {
+        nxt.subst_ctrs(nam, val);
+      }
     }
   }
 }

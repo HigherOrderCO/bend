@@ -2,8 +2,12 @@
 source: tests/golden_tests.rs
 input_file: tests/golden_tests/scott_triggers_unused/test.bend
 ---
-[4m[1m[31mErrors:[0m
-[1mIn definition '[4mbool/f/tag[0m[1m':[0m
-  Definition is unused.
-[1mIn definition '[4mbool/t/tag[0m[1m':[0m
-  Definition is unused.
+@bool/f = ((@bool/f/tag a) a)
+
+@bool/f/tag = 1
+
+@bool/t = ((@bool/t/tag a) a)
+
+@bool/t/tag = 0
+
+@main = (((?((0 (* 1)) a) a) b) b)

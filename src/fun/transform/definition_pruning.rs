@@ -1,6 +1,6 @@
 use crate::{
   diagnostics::WarningType,
-  fun::{Book, Ctx, Name, Term},
+  fun::{Book, Ctx, Name, Source, Term},
   maybe_grow,
 };
 use hvm::ast::{Net, Tree};
@@ -33,7 +33,7 @@ impl Ctx<'_> {
 
     // Get the functions that are accessible from non-builtins.
     for def in self.book.defs.values() {
-      if !def.builtin && !(used.get(&def.name) == Some(&Used::Main)) {
+      if !def.is_builtin() && !(used.get(&def.name) == Some(&Used::Main)) {
         if self.book.ctrs.contains_key(&def.name) {
           used.insert(def.name.clone(), Used::Ctr);
         } else {
@@ -43,7 +43,7 @@ impl Ctx<'_> {
       }
     }
     for def in self.book.hvm_defs.values() {
-      if !def.builtin && !(used.get(&def.name) == Some(&Used::Main)) {
+      if !def.source.is_builtin() && !(used.get(&def.name) == Some(&Used::Main)) {
         used.insert(def.name.clone(), Used::NonBuiltin);
         self.book.find_used_definitions_from_hvm_net(&def.body, Used::NonBuiltin, &mut used);
       }
@@ -60,8 +60,11 @@ impl Ctx<'_> {
     }
 
     // Remove unused definitions.
-    let names = self.book.defs.keys().cloned().chain(self.book.hvm_defs.keys().cloned()).collect::<Vec<_>>();
-    for def in names {
+    let defs = self.book.defs.iter().map(|(nam, def)| (nam.clone(), def.source.clone()));
+    let hvm_defs = self.book.hvm_defs.iter().map(|(nam, def)| (nam.clone(), def.source.clone()));
+    let names = defs.chain(hvm_defs).collect::<Vec<_>>();
+
+    for (def, src) in names {
       if let Some(use_) = used.get(&def) {
         match use_ {
           Used::Main => {
@@ -72,7 +75,7 @@ impl Ctx<'_> {
             // Prune if `prune_all`, otherwise show a warning.
             if prune_all {
               rm_def(self.book, &def);
-            } else {
+            } else if !def.is_generated() && !matches!(src, Source::Generated) {
               self.info.add_rule_warning("Definition is unused.", WarningType::UnusedDefinition, def);
             }
           }

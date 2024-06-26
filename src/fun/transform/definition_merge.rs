@@ -35,13 +35,12 @@ impl Book {
       let new_name = Name::new(equal_defs.iter().join(MERGE_SEPARATOR));
 
       // Builtin origin takes precedence
-      let builtin = equal_defs.iter().any(|nam| self.defs[nam].builtin);
+      let builtin = equal_defs.iter().any(|nam| self.defs[nam].is_builtin());
 
       if equal_defs.len() > 1 {
         // Merging some defs
         // Add the merged def
-        let new_def =
-          Definition { name: new_name.clone(), rules: vec![Rule { pats: vec![], body: term }], builtin };
+        let new_def = Definition::new_gen(new_name.clone(), vec![Rule { pats: vec![], body: term }], builtin);
         self.defs.insert(new_name.clone(), new_def);
         // Remove the old ones and write the map of old names to new ones.
         for name in equal_defs {

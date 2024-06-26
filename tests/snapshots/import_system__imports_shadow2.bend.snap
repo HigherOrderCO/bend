@@ -1,0 +1,6 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/import_system/imports_shadow2.bend
+---
+[4m[1m[31mErrors:[0m
+The import 'lib/folder/myFun/myFun' shadows the imported name 'lib/myFun/myFun'

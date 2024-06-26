@@ -1,0 +1,6 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/import_system/imports_file_and_dir_conflict.bend
+---
+[4m[1m[31mErrors:[0m
+Both file 'lib/file_and_dir.bend' and folder 'lib/file_and_dir' contains the import 'w'

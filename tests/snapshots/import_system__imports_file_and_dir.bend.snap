@@ -1,0 +1,5 @@
+---
+source: tests/golden_tests.rs
+input_file: tests/golden_tests/import_system/imports_file_and_dir.bend
+---
+(1, (3, 4))

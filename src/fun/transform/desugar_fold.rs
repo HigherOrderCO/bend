@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::{
   diagnostics::Diagnostics,
-  fun::{Adts, Constructors, Ctx, Definition, Name, Pattern, Rule, Term},
+  fun::{Adts, Constructors, Ctx, Definition, Name, Pattern, Rule, Source, Term},
   maybe_grow,
 };
 
@@ -40,7 +40,7 @@ impl Ctx<'_> {
           &mut new_defs,
           &self.book.ctrs,
           &self.book.adts,
-          def.builtin,
+          &def.source,
         );
         if let Err(e) = res {
           self.info.add_rule_error(e, def.name.clone());
@@ -62,11 +62,11 @@ impl Term {
     new_defs: &mut Vec<Definition>,
     ctrs: &Constructors,
     adts: &Adts,
-    builtin: bool,
+    source: &Source,
   ) -> Result<(), String> {
     maybe_grow(|| {
       for child in self.children_mut() {
-        child.desugar_fold(def_name, fresh, new_defs, ctrs, adts, builtin)?;
+        child.desugar_fold(def_name, fresh, new_defs, ctrs, adts, source)?;
       }
 
       if let Term::Fold { .. } = self {
@@ -120,7 +120,8 @@ impl Term {
         let body = Term::rfold_lams(body, with_bnd.iter().cloned());
         let body = Term::rfold_lams(body, free_vars.iter().map(|nam| Some(nam.clone())));
         let body = Term::lam(Pattern::Var(Some(x_nam)), body);
-        let def = Definition { name: new_nam.clone(), rules: vec![Rule { pats: vec![], body }], builtin };
+
+        let def = Definition::new(new_nam.clone(), vec![Rule { pats: vec![], body }], source.clone());
         new_defs.push(def);
 
         // Call the new function

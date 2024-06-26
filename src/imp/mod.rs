@@ -3,7 +3,7 @@ mod order_kwargs;
 pub mod parser;
 pub mod to_fun;
 
-use crate::fun::{CtrField, Name, Num, Op};
+use crate::fun::{CtrField, Name, Num, Op, Source};
 use interner::global::GlobalString;
 
 #[derive(Clone, Debug)]
@@ -201,6 +201,7 @@ pub struct Definition {
   pub name: Name,
   pub params: Vec<Name>,
   pub body: Stmt,
+  pub source: Source,
 }
 
 // "enum" ":" {variants}*
