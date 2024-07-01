@@ -99,15 +99,16 @@ pub enum Stmt {
   //  {then}
   // "else" ":"
   //  {otherwise}
-  // <nxt>?
+  // {nxt}?
   If {
     cond: Box<Expr>,
     then: Box<Stmt>,
     otherwise: Box<Stmt>,
     nxt: Option<Box<Stmt>>,
   },
-  // "match" ({bind} "=")? {arg} ({with_clause})? ":"
-  //   case {lft} ":" {rgt}
+  // "match" ({bind} "=")? {arg} ("with" (({bind}) | ({bind} "=" {arg}) ","?)*)? ":"
+  //   "case" {lft} ":"
+  //     {rgt}
   //   ...
   // <nxt>?
   Match {
@@ -118,9 +119,12 @@ pub enum Stmt {
     arms: Vec<MatchArm>,
     nxt: Option<Box<Stmt>>,
   },
-  // "switch" ({bind} "=")? {arg} ({with_clause})? ":"
-  //   case 0..wildcard ":" {rgt}
+  // "switch" ({bind} "=")? {arg}("with" (({bind}) | ({bind} "=" {arg}) ","?)*)? ":"
+  //   "case" 0 ":"
+  //     {stmt}
   //   ...
+  //   "case" _ ":"
+  //     {stmt}
   // <nxt>?
   Switch {
     arg: Box<Expr>,
@@ -130,11 +134,12 @@ pub enum Stmt {
     arms: Vec<Stmt>,
     nxt: Option<Box<Stmt>>,
   },
-  // "bend" ({bind} ("=" {init})?)* "while" {cond} ":"
-  //   {step}
-  // "then" ":"
-  //   {base}
-  // <nxt>?
+  // "bend" ({bind} ("=" {init})? ","?)*
+  //   "when" {cond} ":"
+  //     {step}
+  //   "else" ":"
+  //     {base}
+  // {nxt}}?
   Bend {
     bnd: Vec<Option<Name>>,
     arg: Vec<Expr>,
@@ -143,10 +148,11 @@ pub enum Stmt {
     base: Box<Stmt>,
     nxt: Option<Box<Stmt>>,
   },
-  // "fold" ({bind} "=")? {arg} ({with_clause})? ":" {arms}
-  //   case {lft} ":" {rgt}
+  // "fold" ({bind} "=")? {arg} ("with" (({bind}) | ({bind} "=" {arg}) ","?)*)? ":"
+  //   case {lft} ":"
+  //     {rgt}
   //   ...
-  // <nxt>?
+  // {nxt}?
   Fold {
     arg: Box<Expr>,
     bnd: Option<Name>,
@@ -155,8 +161,9 @@ pub enum Stmt {
     arms: Vec<MatchArm>,
     nxt: Option<Box<Stmt>>,
   },
-  // "with" {fun} ":"
-  //   {block}
+  // "with" {typ} ":"
+  //   "ask" {id} = {expr} ";"?
+  //   ...
   // <nxt>?
   With {
     typ: Name,
@@ -194,7 +201,7 @@ pub enum Stmt {
   Err,
 }
 
-// Name "{" {fields}* "}"
+// {name} "{" {field}* "}"
 #[derive(Clone, Debug)]
 pub struct Variant {
   pub name: Name,
@@ -209,7 +216,7 @@ pub struct Definition {
   pub body: Stmt,
 }
 
-// "enum" ":" {variants}*
+// "type" {name} ":" {variant}*
 #[derive(Clone, Debug)]
 pub struct Enum {
   pub name: Name,

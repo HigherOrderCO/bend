@@ -767,7 +767,7 @@ impl<'a> PyParser<'a> {
     Ok((case, stmt, nxt_indent))
   }
 
-  /// "fold" <bind> "=" <arg> ":"
+  /// "fold" <bind> ("=" <arg>)? ":"
   ///   "case" <ctr> ":"
   ///     <case>
   ///   ...
