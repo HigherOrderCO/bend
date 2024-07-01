@@ -219,6 +219,7 @@ impl Term {
       | Term::With { .. }
       | Term::Ask { .. }
       | Term::Open { .. }
+      | Term::Def { .. }
       | Term::Err => unreachable!(),
     }
   }
@@ -264,7 +265,12 @@ impl Term {
       | Term::Ref { .. }
       | Term::Era
       | Term::Err => FloatIter::Zero([]),
-      Term::With { .. } | Term::Ask { .. } | Term::Bend { .. } | Term::Fold { .. } | Term::Open { .. } => {
+      Term::With { .. }
+      | Term::Ask { .. }
+      | Term::Bend { .. }
+      | Term::Fold { .. }
+      | Term::Open { .. }
+      | Term::Def { .. } => {
         unreachable!()
       }
     }

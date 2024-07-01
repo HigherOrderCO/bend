@@ -68,6 +68,7 @@ impl Term {
       | Term::Swt { .. }
       | Term::Fold { .. }
       | Term::Bend { .. }
+      | Term::Def { .. }
       | Term::Era
       | Term::Err => {}
     })

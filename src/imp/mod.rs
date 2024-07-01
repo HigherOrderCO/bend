@@ -1,5 +1,4 @@
 pub mod gen_map_get;
-pub mod lift_local_defs;
 mod order_kwargs;
 pub mod parser;
 pub mod to_fun;

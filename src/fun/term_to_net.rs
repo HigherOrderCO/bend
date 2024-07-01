@@ -235,6 +235,7 @@ impl<'t, 'l> EncodeTermState<'t, 'l> {
         | Term::Nat { .. } // Removed in encode_nat
         | Term::Str { .. } // Removed in encode_str
         | Term::List { .. } // Removed in encode_list
+        | Term::Def { .. } // Removed in earlier pass
         | Term::Err => unreachable!(),
       }
       while let Some((pat, val)) = self.lets.pop() {

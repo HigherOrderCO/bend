@@ -34,6 +34,7 @@ and this project does not currently adhere to a particular versioning scheme.
 - Add list utilities `List/{length, reverse, flatten, concat}`.
 - Add `elif` chains to functional syntax. ([#596][gh-596])
 - Add local definitions to imperative syntax. ([#562][gh-562])
+- Add local definitions to functional syntax.
 
 ## [0.2.35] - 2024-06-06
 

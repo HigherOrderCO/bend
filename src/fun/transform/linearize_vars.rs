@@ -168,6 +168,7 @@ impl Term {
       Term::Fold { .. } => unreachable!("'fold' should be removed in earlier pass"),
       Term::Bend { .. } => unreachable!("'bend' should be removed in earlier pass"),
       Term::Open { .. } => unreachable!("'open' should be removed in earlier pass"),
+      Term::Def { .. } => unreachable!("'def' should be removed in earlier pass"),
     }
   }
 }

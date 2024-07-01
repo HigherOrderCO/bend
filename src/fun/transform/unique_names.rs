@@ -162,6 +162,7 @@ impl UniqueNameGenerator {
       | Term::Era
       | Term::Err => {}
       Term::Open { .. } => unreachable!("'open' should be removed in earlier pass"),
+      Term::Def { .. } => unreachable!("'def' should be removed in earlier pass"),
     })
   }
 

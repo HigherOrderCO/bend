@@ -73,7 +73,7 @@ pub struct HvmDefinition {
 }
 
 /// A pattern matching rule of a definition.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct Rule {
   pub pats: Vec<Pattern>,
   pub body: Term,
@@ -178,6 +178,11 @@ pub enum Term {
   },
   Ref {
     nam: Name,
+  },
+  Def {
+    nam: Name,
+    rules: Vec<Rule>,
+    nxt: Box<Term>,
   },
   Era,
   #[default]
@@ -378,6 +383,7 @@ impl Clone for Term {
         Self::Open { typ: typ.clone(), var: var.clone(), bod: nxt.clone() }
       }
       Self::Ref { nam } => Self::Ref { nam: nam.clone() },
+      Self::Def { nam, rules, nxt } => Self::Def { nam: nam.clone(), rules: rules.clone(), nxt: nxt.clone() },
       Self::Era => Self::Era,
       Self::Err => Self::Err,
     })
@@ -545,6 +551,7 @@ impl Term {
       | Term::Nat { .. }
       | Term::Str { .. }
       | Term::Ref { .. }
+      | Term::Def { .. }
       | Term::Era
       | Term::Err => ChildrenIter::Zero([]),
     }
@@ -580,6 +587,7 @@ impl Term {
       | Term::Nat { .. }
       | Term::Str { .. }
       | Term::Ref { .. }
+      | Term::Def { .. }
       | Term::Era
       | Term::Err => ChildrenIter::Zero([]),
     }
@@ -647,6 +655,7 @@ impl Term {
       | Term::Nat { .. }
       | Term::Str { .. }
       | Term::Ref { .. }
+      | Term::Def { .. }
       | Term::Era
       | Term::Err => ChildrenIter::Zero([]),
       Term::Open { .. } => unreachable!("Open should be removed in earlier pass"),
@@ -710,6 +719,7 @@ impl Term {
       | Term::Nat { .. }
       | Term::Str { .. }
       | Term::Ref { .. }
+      | Term::Def { .. }
       | Term::Era
       | Term::Err => ChildrenIter::Zero([]),
       Term::Open { .. } => unreachable!("Open should be removed in earlier pass"),

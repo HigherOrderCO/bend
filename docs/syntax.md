@@ -1095,6 +1095,18 @@ with Result {
 }
 ```
 
+### Def
+
+Creates a local function visible in the current block capturing variables:
+
+```rust
+main =
+  let base = 0
+  def aux [] = base
+      aux (List/Cons head tail) = (+ head (aux tail))
+  (aux [1, 2, 3])
+```
+
 ### Numbers and operations
 
 Currently, bend supports 3 types of numbers: floats, integers and unsigned integers. All of then are 24 bit sized.

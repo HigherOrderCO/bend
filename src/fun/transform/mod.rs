@@ -14,6 +14,7 @@ pub mod expand_main;
 pub mod fix_match_defs;
 pub mod fix_match_terms;
 pub mod float_combinators;
+pub mod lift_defs;
 pub mod linearize_matches;
 pub mod linearize_vars;
 pub mod resolve_refs;
